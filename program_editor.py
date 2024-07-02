@@ -2,8 +2,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import os
 import csv
-from enum import Enum
 from typing import Union
+from datetime import timedelta as td
 
 import program_handler as ph
 
@@ -18,35 +18,29 @@ ERROR_COLOR = 'red'
 if not os.path.exists(FILE_DIRECTORY):
     os.makedirs(FILE_DIRECTORY)
 
-class EntryTypes(Enum):
-    TEXT = 0
-    BOOLEAN = 1
-    EVENT_OUTPUT = 2
-    TIME = 3
-
 class ProgramEditor:
-    frame_step_type_row = 0
-    frame_event_outputs_row = 1
-    frame_duration_row=2
-    frame_ch1_pid_row=3
-    frame_ch2_pid_row=4
-    frame_ch1_pid_selection_row=5
-    frame_ch2_pid_selection_row=6
-    frame_guaranteed_soak_1_row=7
-    frame_guaranteed_soak_2_row=8
+    steps:list[ph.StepDetails] = []
+    event_output_vars:list[tk.BooleanVar] = []
+    guaranteed_soak_vars:list[tk.BooleanVar] = []
+    channel_temp_setpoint_vars:list[tk.IntVar] = []
+    ch_pid_selection_vars:list[tk.IntVar] = []
+    ramp_rate_var:tk.StringVar = None
+    duration_vars:list[tk.IntVar] = []
+    jump_vars:list[tk.IntVar] = []
+    current_file = None
+    current_step_id = None
+    step_detail_frames:list[tk.Frame] = []
+    frame_jump_row = 8
+
     def __init__(self, root):
         self.root = root
         self.root.title("Watlow F4 Program Editor")
         self.root.geometry("520x600")  # Adjusted size for the combined view
         self.root.resizable(False, False)
 
-        self.create_widgets()
+        self.create_app_widgets()
 
-        self.current_file = None
-        self.current_step_id = None
-        self.event_output_checkboxes = []
-
-    def create_widgets(self):
+    def create_app_widgets(self):
         # Create a frame for the Treeview
         tree_frame = tk.Frame(self.root)
         tree_frame.grid(row=0, column=0, sticky='nsew', padx=5, pady=5)
@@ -145,31 +139,18 @@ class ProgramEditor:
         self.tree.bind('<<TreeviewSelect>>', self.on_treeview_select)
         self.step_type_dropdown.event_generate("<<ComboboxSelected>>")
 
-    def create_boolean_widget(self, parent_frame:tk.Frame, text:str, var:tk.BooleanVar) -> tuple[tk.Frame, tk.Checkbutton]:
+    def create_ramp_rate_entry_widget(self, parent_frame:tk.Frame) -> tk.Frame:
         frame = tk.Frame(parent_frame)
-        frame.grid_columnconfigure(0, weight=1)
-        frame.grid_columnconfigure(1, weight=1)
-
-        label = tk.Label(frame, text=text, anchor='center')
-        label.grid(row=0, column=0, padx=5, pady=0, sticky='ew')
-
-        entry = tk.Checkbutton(frame, variable=var)
-        entry.grid(row=0, column=1, padx=5, pady=0, sticky='ew')
-
-        return frame, entry
-
-    def create_label_entry_widget(self, parent_frame:tk.Frame, text:str, var:tk.StringVar) -> tuple[tk.Frame, tk.Entry]:
-        frame = tk.Frame(parent_frame)
+        frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, padx=5, pady=5, sticky='ew')   
         frame.grid_columnconfigure(0, weight=1)
         frame.grid_columnconfigure(1, weight=0)
+        
+        self.step_detail_frames.append(frame)
 
-        label = tk.Label(frame, text=text, anchor='center')
-        label.grid(row=0, column=0, padx=5, pady=5, sticky='w')
+        frame_entry, self.ramp_rate_var = self.create_entry_widget(frame, "Rate per Minute (C):", 2, validation_limits=(0.1, 3000))
+        frame_entry.grid(row=0, column=0, columnspan=2, pady=5, sticky='we')
 
-        entry = tk.Entry(frame, textvariable=var, width=5)
-        entry.grid(row=0, column=1, padx=5, pady=5, sticky='e')
-
-        return frame, entry
+        return frame
     
     def create_combobox_widget(self, parent_frame:tk.Frame, values:list, label_name:str) -> tuple[tk.Frame, ttk.Combobox]:
         frame = tk.Frame(parent_frame)
@@ -185,147 +166,110 @@ class ProgramEditor:
 
         return frame, combobox
 
-    def create_event_output_widget(self, parent_frame:tk.Frame) -> tk.Frame:
+    def create_event_output_widgets(self, parent_frame:tk.Frame):
         frame = tk.Frame(parent_frame)
+        frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, pady=5, sticky='ew')
+        
+        self.step_detail_frames.append(frame)
+
         for i in range(4):
             frame.grid_columnconfigure(i, weight=1)
 
         tk.Label(frame, text="Wait for Event Output(s)", anchor='center').grid(row=0, columnspan=4)
 
-        self.event_output_checkboxes = []  # Clear the list before creating new checkboxes
+        self.event_output_vars = []  # Clear the list before creating new checkboxes
         for i in range(8):
-            chk = tk.Checkbutton(frame, text=str(i+1), variable=tk.BooleanVar(value=False))
-            chk.grid(row=i//4+1, column=i%4, padx=5, pady=2)
-            self.event_output_checkboxes.append(chk)
-        
-        return frame
+            var = tk.BooleanVar(value=False)
+            self.event_output_vars.append(var)
 
-    def create_duration_widgets(self, parent_frame:tk.Frame) -> tk.Frame:
+            check_button = tk.Checkbutton(frame, text=str(i+1), variable=var)
+            check_button.grid(row=i//4+1, column=i%4, padx=5, pady=2)
+
+    def get_event_output_states(self) -> tuple[bool, list[bool]]:
+        event_output_states = [checkbox_var.get() for checkbox_var in self.event_output_vars]
+        return any(event_output_states), event_output_states
+
+    def create_duration_widgets(self, parent_frame:tk.Frame):
         frame = tk.Frame(parent_frame)
-        frame.grid(row=self.frame_duration_row, column=self.frame_duration_row, columnspan=2, pady=5, sticky='we')
+        frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, pady=5, sticky='ew')
+        for i in range(3):
+            frame.grid_columnconfigure(i, weight=1)
+        
+        self.step_detail_frames.append(frame)
 
-        tk.Label(frame, text="Hours").grid(row=0, column=0, padx=5, pady=5, sticky='ew')
-        self.hours_entry = tk.Entry(frame, width=5)
-        self.hours_entry.insert(0, "0")
-        self.hours_entry.grid(row=1, column=0, padx=5, pady=5, sticky='ew')
+        self.duration_vars = []
 
-        tk.Label(frame, text="Minutes").grid(row=0, column=1, padx=5, pady=5, sticky='ew')
-        self.minutes_entry = tk.Entry(frame, width=5)
-        self.minutes_entry.grid(row=1, column=1, padx=5, pady=5, sticky='ew')
-        self.minutes_entry.insert(0, "0")
+        frame_entry, var = self.create_entry_widget(frame, "Hours", 0, validation_limits=(0, 99), horizontal=False)
+        frame_entry.grid(row=0, column=0, pady=5, sticky='ew')
+        self.duration_vars.append(var)
+        
+        frame, var = self.create_entry_widget(frame, "Minutes", 0, validation_limits=(0, 99), horizontal=False)
+        frame.grid(row=0, column=1, pady=5, sticky='ew')
+        self.duration_vars.append(var) 
 
-        tk.Label(frame, text="Seconds").grid(row=0, column=2, padx=5, pady=5, sticky='ew')
-        self.seconds_entry = tk.Entry(frame, width=5)
-        self.seconds_entry.grid(row=1, column=2, padx=5, pady=5, sticky='ew')
-        self.seconds_entry.insert(0, "1")
+        frame, var = self.create_entry_widget(frame, "Seconds", 1, validation_limits=(1, 99), horizontal=False)
+        frame.grid(row=0, column=2, pady=5, sticky='ew')
+        self.duration_vars.append(var)
+   
+    def create_channel_temp_setpoint_widgets(self, parent_frame:tk.Frame, widget_count:int) -> tk.Frame:
+        frame = tk.Frame(parent_frame)
+        frame.grid(row=len(self.step_detail_frames)+1, column=0, padx=7, pady=5, sticky='ew', columnspan=2)
+        for i in range(2):
+            frame.grid_columnconfigure(i, weight=1)
+        
+        self.step_detail_frames.append(frame)
 
-        self.hours_entry.bind('<KeyRelease>', self.update_button_state_duration)
-        self.minutes_entry.bind('<KeyRelease>', self.update_button_state_duration)
-        self.seconds_entry.bind('<KeyRelease>', self.update_button_state_duration)
+        self.channel_temp_setpoint_vars = []  # Clear the list before creating new entries
+        for i in range(1, widget_count+1):
+            frame, var = self.create_entry_widget(frame, f"Ch {i} Setpoint (C):", 25, validation_limits=(1, 200))
+            frame.grid(row=i, column=0, columnspan=2, pady=5, sticky='we')
+            self.channel_temp_setpoint_vars.append(var)
+
+        return frame
+    
+    def create_channel_pid_selection_widgets(self, parent_frame:tk.Frame, widget_count:int) -> tk.Frame:
+        frame = tk.Frame(parent_frame)
+        frame.grid(row=len(self.step_detail_frames)+1, column=0, padx=5, pady=5, sticky='ew', columnspan=2)
+        for i in range(2):
+            frame.grid_columnconfigure(i, weight=1)
+        
+        self.step_detail_frames.append(frame)
+
+        self.ch_pid_selection_vars = []  # Clear the list before creating new comboboxes
+        for i in range(1, widget_count+1):
+            label = tk.Label(frame, text=f"Ch {i} PID Selection:", anchor='center')
+            label.grid(row=i, column=0, padx=5, pady=5, sticky='w')
+
+            start_value = 5 * (i - 1) + 1
+
+            var = tk.IntVar(value=start_value)
+            self.ch_pid_selection_vars.append(var)
+            combobox = ttk.Combobox(frame, textvariable=var, values=[x for x in range(start_value, start_value + i)], state="readonly", width=2)
+            combobox.grid(row=i, column=1, padx=5, pady=5, sticky='e')
+            combobox.current(0)
 
         return frame
 
-    def validate_duration_entry(self, value):
-        valid = True
-        if not value:
-            return True
+    def create_guaranteed_soak_widgets(self, parent_frame:tk.Frame, widget_count:int) -> tk.Frame:
+        frame = tk.Frame(parent_frame)
+        frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, padx=0, pady=5, sticky='ew')
+        for i in range(2):
+            frame.grid_columnconfigure(i, weight=1)
 
-        try:
-            int_value = int(value)
-            if int_value < 0 or int_value > 99:
-                valid = False
-            if self.seconds_entry is self.root.focus_get() and int_value < 1:
-                valid = False
-        except ValueError:
-            valid = False
+        self.step_detail_frames.append(frame)
 
-        if not valid:
-            self.hours_entry.config(bg=ERROR_COLOR)
-            self.minutes_entry.config(bg=ERROR_COLOR)
-            self.seconds_entry.config(bg=ERROR_COLOR)
-        else:
-            self.hours_entry.config(bg=DEFAULT_COLOR)
-            self.minutes_entry.config(bg=DEFAULT_COLOR)
-            self.seconds_entry.config(bg=DEFAULT_COLOR)
-            
-        return valid
+        self.guaranteed_soak_vars = []  # Clear the list before creating new checkboxes
+        for i in range(1, widget_count+1):
+            label = tk.Label(frame, text=f"Guarantee Soak {i}:", anchor='center')
+            label.grid(row=i, column=0, padx=5, pady=0, sticky='ew')
 
-    def validate_jump_to_profile(self, value):
-        valid = True
-        if not value:
-            return True
+            var = tk.BooleanVar(value=False)
+            self.guaranteed_soak_vars.append(var)
 
-        try:
-            int_value = int(value)
-            if not (1 <= int_value <= 40):
-                valid = False
-        except ValueError:
-            valid = False
+            check_button = tk.Checkbutton(frame, variable=var)
+            check_button.grid(row=i, column=1, padx=5, pady=0, sticky='ew')
 
-        if not valid:
-            self.frame_jump_to_profile_entry.config(bg=ERROR_COLOR)
-        else:
-            self.frame_jump_to_profile_entry.config(bg=DEFAULT_COLOR)
-            
-        return valid
-
-    def validate_jump_to_step(self, value):
-        valid = True
-        if not value:
-            return True
-
-        try:
-            int_value = int(value)
-            if not (1 <= int_value <= 256):
-                valid = False
-        except ValueError:
-            valid = False
-
-        if not valid:
-            self.frame_jump_to_step_entry.config(bg=ERROR_COLOR)
-        else:
-            self.frame_jump_to_step_entry.config(bg=DEFAULT_COLOR)
-            
-        return valid
-
-    def validate_number_of_repeats(self, value):
-        valid = True
-        if not value:
-            return True
-
-        try:
-            int_value = int(value)
-            if not (1 <= int_value <= 999):
-                valid = False
-        except ValueError:
-            valid = False
-
-        if not valid:
-            self.number_of_repeats_entry.config(bg=ERROR_COLOR)
-        else:
-            self.number_of_repeats_entry.config(bg=DEFAULT_COLOR)
-            
-        return valid
-
-    def update_button_state_duration(self, event=None):
-        if (self.validate_duration_entry(self.hours_entry.get()) and
-                self.validate_duration_entry(self.minutes_entry.get()) and
-                self.validate_duration_entry(self.seconds_entry.get())):
-            self.add_button.config(state='normal')
-            self.update_button.config(state='normal')
-        else:
-            self.add_button.config(state='disabled')
-            self.update_button.config(state='disabled')
-
-    def update_button_state_jump(self, event=None):
-        if (self.validate_jump_to_profile(self.frame_jump_to_profile_entry.get()) and
-                self.validate_jump_to_step(self.frame_jump_to_step_entry.get()) and
-                self.validate_number_of_repeats(self.number_of_repeats_entry.get())):
-            self.add_button.config(state='normal')
-            self.update_button.config(state='normal')
-        else:
-            self.add_button.config(state='disabled')
-            self.update_button.config(state='disabled')
+        return frame
 
     def on_step_type_selected(self, event):
         step_type = self.step_type_dropdown.get()
@@ -350,117 +294,160 @@ class ProgramEditor:
             self.create_jump_widgets()
         elif step_type == ph.StepTypeName.END.value:
             self.create_end_widgets()
-        else:
-            raise ValueError(f"Unknown step type: {step_type}")
 
     def create_ramp_by_time_widgets(self):
-        self.event_outputs_frame = self.create_event_output_widget(self.details_frame)
-        self.event_outputs_frame.grid(row=self.frame_event_outputs_row, column=0, columnspan=2, pady=5, sticky='ew')
-
-        self.duration_frame = self.create_duration_widgets(self.details_frame)
-        self.duration_frame.grid(row=self.frame_duration_row, column=0, columnspan=2, pady=5, sticky='ew')
-
-        self.ch1_temp_setpoint_frame, self.ch1_temp_setpoint_entry  = self.create_label_entry_widget(self.details_frame, "Ch 1 Setpoint (C):", tk.StringVar(value='25'))
-        self.ch1_temp_setpoint_frame.grid(row=self.frame_ch1_pid_row, column=0, padx=7, pady=5, sticky='ew', columnspan=2)
-        
-        self.ch2_temp_setpoint_frame, self.ch2_temp_setpoint_entry = self.create_label_entry_widget(self.details_frame, "Ch 2 Setpoint (C):", tk.StringVar(value='25'))
-        self.ch2_temp_setpoint_frame.grid(row=self.frame_ch2_pid_row, column=0, padx=7, pady=5, sticky='ew', columnspan=2)
-        
-        self.frame_ch1_selection_dropdown, self.ch1_setpoint_dropdown = self.create_combobox_widget(self.details_frame, range(1, 6), 'Ch 1 PID Selection:')
-        self.frame_ch1_selection_dropdown.grid(row=self.frame_ch1_pid_selection_row, column=0, padx=5, pady=5, sticky='ew', columnspan=2)
-        
-        self.frame_ch2_selection_dropdown, self.ch2_setpoint_dropdown = self.create_combobox_widget(self.details_frame, range(6, 11), 'Ch 2 PID Selection:')
-        self.frame_ch2_selection_dropdown.grid(row=self.frame_ch2_pid_selection_row, column=0, padx=5, pady=5, sticky='ew', columnspan=2)
-
-        self.frame_guaranteed_soak_1, self.guaranteed_soak_1_checkbutton = self.create_boolean_widget(self.details_frame, "Guarantee Soak 1:", tk.BooleanVar(value=False))
-        self.frame_guaranteed_soak_1.grid(row=self.frame_guaranteed_soak_1_row, column=0, columnspan=2, padx=0, pady=5, sticky='ew')
-
-        self.frame_guaranteed_soak_2, self.guaranteed_soak_2_checkbutton = self.create_boolean_widget(self.details_frame, "Guarantee Soak 2:", tk.BooleanVar(value=False))
-        self.frame_guaranteed_soak_2.grid(row=self.frame_guaranteed_soak_2_row, column=0, columnspan=2, padx=0, pady=5, sticky='ew')
+        self.create_event_output_widgets(self.details_frame)
+        self.create_duration_widgets(self.details_frame)
+        self.create_channel_temp_setpoint_widgets(self.details_frame, 2)
+        self.create_channel_pid_selection_widgets(self.details_frame, 2)
+        self.create_guaranteed_soak_widgets(self.details_frame, 2)
 
     def create_ramp_by_rate_widgets(self):
-        self.event_outputs_frame = self.create_event_output_widget(self.details_frame)
-        self.event_outputs_frame.grid(row=self.frame_event_outputs_row, column=0, columnspan=2, pady=5, sticky='ew')
-
-        self.create_label_entry_widget(self.details_frame, "Rate (C) per Minute:", tk.StringVar(value='2'))
-
-        self.ch1_temp_setpoint_frame, self.ch1_temp_setpoint_entry  = self.create_label_entry_widget(self.details_frame, "Ch 1 Setpoint (C):", tk.StringVar(value='25'))
-        self.ch1_temp_setpoint_frame.grid(row=self.frame_ch1_pid_row, column=0, padx=7, pady=5, sticky='ew', columnspan=2)
-
-        self.frame_ch1_selection_dropdown, self.ch1_setpoint_dropdown = self.create_combobox_widget(self.details_frame, range(1, 6), 'Ch 1 PID Selection:')
-        self.frame_ch1_selection_dropdown.grid(row=self.frame_ch1_pid_selection_row, column=0, padx=5, pady=5, sticky='ew', columnspan=2)
-        
-        self.frame_guaranteed_soak_1, self.guaranteed_soak_1_checkbutton = self.create_boolean_widget(self.details_frame, "Guarantee Soak 1:", tk.BooleanVar(value=False))
-        self.frame_guaranteed_soak_1.grid(row=self.frame_guaranteed_soak_1_row, column=0, columnspan=2, padx=0, pady=5, sticky='ew')
+        self.create_event_output_widgets(self.details_frame)
+        self.create_ramp_rate_entry_widget(self.details_frame)
+        self.create_channel_temp_setpoint_widgets(self.details_frame, 1)
+        self.create_channel_pid_selection_widgets(self.details_frame, 1)
+        self.create_guaranteed_soak_widgets(self.details_frame, 1)
 
     def create_soak_widgets(self):
-        self.event_outputs_frame = self.create_event_output_widget(self.details_frame)
-        self.event_outputs_frame.grid(row=self.frame_event_outputs_row, column=0, columnspan=2, pady=5, sticky='ew')
+        self.create_event_output_widgets(self.details_frame)
+        self.create_duration_widgets(self.details_frame)
+        self.create_channel_temp_setpoint_widgets(self.details_frame, 2)
+        self.create_channel_pid_selection_widgets(self.details_frame, 2)
+        self.create_guaranteed_soak_widgets(self.details_frame, 2)
 
-        self.duration_frame = self.create_duration_widgets(self.details_frame)
-        self.duration_frame.grid(row=self.frame_duration_row, column=0, columnspan=2, pady=5, sticky='ew')
+    def create_entry_widget(self, parent_frame:tk.Frame, label_text:str, initial_value=0, validation_limits:tuple = None, horizontal:bool=True) -> tuple[tk.Frame, tk.IntVar]:
+        frame = tk.Frame(parent_frame)
 
-        self.ch1_temp_setpoint_frame, self.ch1_temp_setpoint_entry  = self.create_label_entry_widget(self.details_frame, "Ch 1 Setpoint (C):", tk.StringVar(value='25'))
-        self.ch1_temp_setpoint_frame.grid(row=self.frame_ch1_pid_row, column=0, padx=7, pady=5, sticky='ew', columnspan=2)
+        label = tk.Label(frame, text=label_text, anchor='center')
 
-        self.ch2_temp_setpoint_frame, self.ch2_temp_setpoint_entry  = self.create_label_entry_widget(self.details_frame, "Ch 2 Setpoint (C):", tk.StringVar(value='25'))
-        self.ch2_temp_setpoint_frame.grid(row=self.frame_ch2_pid_row, column=0, padx=7, pady=5, sticky='ew', columnspan=2)
+        var = tk.IntVar(value=initial_value)
+        entry = tk.Entry(frame, textvariable=var, width=5)
 
-        self.frame_ch1_selection_dropdown, self.ch1_setpoint_dropdown = self.create_combobox_widget(self.details_frame, range(1, 6), 'Ch 1 PID Selection:')
-        self.frame_ch1_selection_dropdown.grid(row=self.frame_ch1_pid_selection_row, column=0, padx=5, pady=5, sticky='ew', columnspan=2)
-        
-        self.frame_ch2_selection_dropdown, self.ch2_setpoint_dropdown = self.create_combobox_widget(self.details_frame, range(6, 11), 'Ch 2 PID Selection:')
-        self.frame_ch2_selection_dropdown.grid(row=self.frame_ch2_pid_selection_row, column=0, padx=5, pady=5, sticky='ew', columnspan=2)
+        if horizontal:
+            label.grid(row=0, column=0, padx=5, pady=5, sticky='w')
+            entry.grid(row=0, column=1, padx=5, pady=5, sticky='e')
+            frame.grid_columnconfigure(0, weight=1)
+            frame.grid_columnconfigure(1, weight=1)
+        else:
+            label.grid(row=0, column=0, padx=5, pady=5, sticky='w')
+            entry.grid(row=1, column=0, padx=5, pady=5, sticky='e')
+            frame.grid_rowconfigure(0, weight=1)
+            frame.grid_rowconfigure(1, weight=1)
 
-        self.frame_guaranteed_soak_1, self.guaranteed_soak_1_checkbutton = self.create_boolean_widget(self.details_frame, "Guarantee Soak 1:", tk.BooleanVar(value=False))
-        self.frame_guaranteed_soak_1.grid(row=self.frame_guaranteed_soak_1_row, column=0, columnspan=2, padx=0, pady=5, sticky='ew')
+        if validation_limits:
+            limit_lo, limit_hi = validation_limits[0], validation_limits[1]
+        entry.bind('<KeyRelease>', lambda event: self.update_buttons_state(entry, limit_lo, limit_hi, event))
 
-        self.frame_guaranteed_soak_2, self.guaranteed_soak_2_checkbutton = self.create_boolean_widget(self.details_frame, "Guarantee Soak 2:", tk.BooleanVar(value=False))
-        self.frame_guaranteed_soak_2.grid(row=self.frame_guaranteed_soak_2_row, column=0, columnspan=2, padx=0, pady=5, sticky='ew')
+        return frame, var 
 
     def create_jump_widgets(self):
-        self.jump_frame = tk.Frame(self.details_frame)
-        self.jump_frame.grid(row=self.frame_guaranteed_soak_2_row+1, column=0, columnspan=2, pady=5, sticky='we')
+        frame = tk.Frame(self.details_frame)
+        frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, padx=0, pady=5, sticky='ew')
+        frame.grid_columnconfigure(0, weight=1)
+        frame.grid_columnconfigure(1, weight=1)
 
-        self.jump_frame.grid_columnconfigure(0, weight=1)
-        self.jump_frame.grid_columnconfigure(1, weight=1)
+        self.step_detail_frames.append(frame)
 
-        self.frame_jump_to_profile, self.frame_jump_to_profile_entry = self.create_label_entry_widget(
-            self.jump_frame, "Jump To Profile:", tk.StringVar(value='1')
-        )
-        self.frame_jump_to_profile.grid(row=0, column=0, columnspan=2, pady=5, sticky='we')
+        self.jump_vars = [] #clear the list before making new vars
 
-        self.frame_jump_to_step, self.frame_jump_to_step_entry = self.create_label_entry_widget(
-            self.jump_frame, "Jump To Step:", tk.StringVar(value='1')
-        )
-        self.frame_jump_to_step.grid(row=1, column=0, columnspan=2, pady=5, sticky='we')
+        frame, var = self.create_entry_widget(frame, "Jump To Profile:", 1, validation_limits=(1, 40))
+        frame.grid(row=0, column=0, columnspan=2, pady=5, sticky='we')
+        self.jump_vars.append(var)
 
-        self.frame_number_of_repeats, self.number_of_repeats_entry = self.create_label_entry_widget(
-            self.jump_frame, "Number of Repeats:", tk.StringVar(value='1')
-        )
-        self.frame_number_of_repeats.grid(row=2, column=0, columnspan=2, pady=5, sticky='we')
+        frame, var = self.create_entry_widget(frame, "Jump To Step:", 1, validation_limits=(1, 256))
+        frame.grid(row=1, column=0, columnspan=2, pady=5, sticky='we')
+        self.jump_vars.append(var)
 
-        self.frame_jump_to_profile_entry.bind('<KeyRelease>', self.update_button_state_jump)
-        self.frame_jump_to_step_entry.bind('<KeyRelease>', self.update_button_state_jump)
-        self.number_of_repeats_entry.bind('<KeyRelease>', self.update_button_state_jump)
+        frame, var = self.create_entry_widget(frame, "Number of Repeats:", 1, validation_limits=(1, 999))
+        frame.grid(row=2, column=0, columnspan=2, pady=5, sticky='we')
+        self.jump_vars.append(var)
 
+    def validate_entry(self, entry:tk.Entry, value:int, limit_lo:int, limit_hi:int):
+        valid = True
 
+        try:
+            if not (limit_lo <= float(value) <= limit_hi):
+                valid = False
+        except (ValueError, TypeError):
+            valid = False
+
+        if not valid:
+            entry.config(bg=ERROR_COLOR)
+        else:
+            entry.config(bg=DEFAULT_COLOR)
+            
+        return valid
+
+    def update_buttons_state(self, entry:tk.Entry, limit_lo:int, limit_hi:int, event=None):
+        if (self.validate_entry(entry, entry.get(), limit_lo, limit_hi)):
+            self.add_button.config(state='normal')
+            self.update_button.config(state='normal')
+        else:
+            self.add_button.config(state='disabled')
+            self.update_button.config(state='disabled')
 
     def create_end_widgets(self):
-        self.frame_end_action_combobox, self.end_action_combobox = self.create_combobox_widget(self.details_frame, [step_type.value for step_type in ph.EndActions], 'End Action:')
-        self.frame_end_action_combobox.grid(row=self.frame_guaranteed_soak_2_row+1, column=0, columnspan=2, padx=0, pady=5, sticky='ew')
+        frame = tk.Frame(self.details_frame)
+        frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, padx=0, pady=5, sticky='ew')
+
+        for i in range(2):
+            frame.grid_columnconfigure(i, weight=1)
+
+        for i in range(3):
+            frame.grid_rowconfigure(i, weight=1)
+
+        self.step_detail_frames.append(frame)
+
+        self.end_vars = [] #clear the list before making new vars
+
+        self.frame_end_action_combobox, self.end_action_combobox = self.create_combobox_widget(frame, [step_type.value for step_type in ph.EndActions], 'End Action:')
+        self.frame_end_action_combobox.grid(row=0, column=0, columnspan=2, padx=0, pady=5, sticky='ew')
         self.end_action_combobox.config(width=12)
         self.end_action_combobox.grid(padx=0)
 
-        self.frame_ch1_idle_setpoint_dropdown, self.ch1idle_setpoint_dropdown = self.create_combobox_widget(self.details_frame, range(1, 6), 'Ch 1 Idle Setpoint')
-        self.frame_ch1_idle_setpoint_dropdown.grid(row=self.frame_guaranteed_soak_2_row+2, column=0, padx=0, pady=5, sticky='ew')
+        self.frame_ch1_idle_setpoint_dropdown, self.ch1idle_setpoint_dropdown = self.create_combobox_widget(frame, range(1, 6), 'Ch 1 Idle Setpoint')
+        self.frame_ch1_idle_setpoint_dropdown.grid(row=1, column=0, padx=0, pady=5, sticky='ew')
         
-        self.frame_ch2_idle_setpoint_dropdown, self.ch2idle_setpoint_dropdown = self.create_combobox_widget(self.details_frame, range(6, 11), 'Ch 2 Idle Setpoint')
-        self.frame_ch2_idle_setpoint_dropdown.grid(row=self.frame_guaranteed_soak_2_row+3, column=0, padx=0, pady=5, sticky='ew')
+        self.frame_ch2_idle_setpoint_dropdown, self.ch2idle_setpoint_dropdown = self.create_combobox_widget(frame, range(6, 11), 'Ch 2 Idle Setpoint')
+        self.frame_ch2_idle_setpoint_dropdown.grid(row=2, column=0, padx=0, pady=5, sticky='ew')
+
+    def get_duration_timedelta(self) -> td:
+        return td(hours=int(self.hours_entry.get), 
+                minutes=int(self.minutes_entry.get), 
+                seconds=int(self.seconds_entry.get))
 
     def add_step(self):
-        # Add step logic
-        pass
+        step_type = self.step_type_dropdown.get()
+
+        if step_type == ph.StepTypeName.RAMP_BY_TIME.value:
+            wait_for_state, event_output_states = self.get_event_output_states()
+            self.get_duration_timedelta()
+            self.channel_temp_setpoint_vars[0].get()
+            self.channel_temp_setpoint_vars[1].get()
+            self.ch_pid_selection_vars[0].get() - 1
+            self.ch_pid_selection_vars[1].get() - 1
+            self.guaranteed_soak_vars[0].get()
+            self.guaranteed_soak_vars[1].get()
+        elif step_type == ph.StepTypeName.RAMP_BY_RATE.value:
+            wait_for_state, event_output_states = self.get_event_output_states()
+            float(self.ramp_rate_var.get())
+            self.channel_temp_setpoint_vars[0].get()
+            self.ch_pid_selection_vars[0].get() - 1
+            self.guaranteed_soak_vars[0].get()
+        elif step_type == ph.StepTypeName.SOAK.value:
+            wait_for_state, event_output_states = self.get_event_output_states()
+            self.get_duration_timedelta()
+            self.ch_pid_selection_vars[0].get() - 1
+            self.ch_pid_selection_vars[1].get() - 1
+            self.guaranteed_soak_vars[0].get()
+            self.guaranteed_soak_vars[1].get()
+        elif step_type == ph.StepTypeName.JUMP.value:
+            self.jump_vars[0].get()
+            self.jump_vars[1].get()
+            self.jump_vars[2].get()
+        elif step_type == ph.StepTypeName.END.value:
+            pass
 
     def update_step(self):
         # Update step logic
