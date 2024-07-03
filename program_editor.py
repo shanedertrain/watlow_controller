@@ -1,36 +1,32 @@
+import os
+from datetime import timedelta as td
+from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-import os
-import csv
-from typing import Union
-from datetime import timedelta as td
 
 import program_handler as ph
 
 # Constants
 FILE_DIRECTORY = os.path.join(os.getcwd(), 'watlow_programs')
 FILE_EXTENSION = '.csv'
-HEADER = ['step_type', 'key_value']
+HEADER = ['step_type']
 DEFAULT_COLOR = 'white'
 ERROR_COLOR = 'red'
 
-# Create directory if it doesn't exist
 if not os.path.exists(FILE_DIRECTORY):
     os.makedirs(FILE_DIRECTORY)
 
 class ProgramEditor:
-    steps:list[ph.StepDetails] = []
+    step_list:list[ph.Step] = []
+    step_detail_frames:list[tk.Frame] = []
     event_output_vars:list[tk.BooleanVar] = []
     guaranteed_soak_vars:list[tk.BooleanVar] = []
     channel_temp_setpoint_vars:list[tk.IntVar] = []
-    ch_pid_selection_vars:list[tk.IntVar] = []
+    ch_pid_selection_comboboxes:list[ttk.Combobox] = []
     ramp_rate_var:tk.StringVar = None
     duration_vars:list[tk.IntVar] = []
     jump_vars:list[tk.IntVar] = []
-    current_file = None
-    current_step_id = None
-    step_detail_frames:list[tk.Frame] = []
-    frame_jump_row = 8
+    end_action_comboboxes:list[ttk.Combobox] = []
 
     def __init__(self, root):
         self.root = root
@@ -39,6 +35,7 @@ class ProgramEditor:
         self.root.resizable(False, False)
 
         self.create_app_widgets()
+        self.new_file()
 
     def create_app_widgets(self):
         # Create a frame for the Treeview
@@ -50,15 +47,13 @@ class ProgramEditor:
         tree_frame.grid_columnconfigure(0, weight=1)
 
         # Setup Treeview
-        self.tree = ttk.Treeview(tree_frame, columns=('step', 'step_type', 'key_value'), show='headings')
+        self.tree = ttk.Treeview(tree_frame, columns=('step', 'step_type'), show='headings')
         self.tree.heading('step', text='Step')
         self.tree.heading('step_type', text='Step Type')
-        self.tree.heading('key_value', text='Key Value')
 
         # Set column widths
         self.tree.column('step', width=5 * 10, anchor='center') 
         self.tree.column('step_type', width=12 * 10, anchor='center')  
-        self.tree.column('key_value', width=12 * 10, anchor='center')  
 
         # Expand Treeview in the available space
         self.tree.grid(row=0, column=0, sticky='nsew')
@@ -139,6 +134,31 @@ class ProgramEditor:
         self.tree.bind('<<TreeviewSelect>>', self.on_treeview_select)
         self.step_type_dropdown.event_generate("<<ComboboxSelected>>")
 
+    def create_entry_widget(self, parent_frame:tk.Frame, label_text:str, initial_value=0, validation_limits:tuple = None, horizontal:bool=True) -> tuple[tk.Frame, tk.IntVar]:
+        frame = tk.Frame(parent_frame)
+
+        label = tk.Label(frame, text=label_text, anchor='center')
+
+        var = tk.IntVar(value=initial_value)
+        entry = tk.Entry(frame, textvariable=var, width=5)
+
+        if horizontal:
+            label.grid(row=0, column=0, padx=5, pady=5, sticky='w')
+            entry.grid(row=0, column=1, padx=5, pady=5, sticky='e')
+            frame.grid_columnconfigure(0, weight=1)
+            frame.grid_columnconfigure(1, weight=1)
+        else:
+            label.grid(row=0, column=0, padx=5, pady=5, sticky='w')
+            entry.grid(row=1, column=0, padx=5, pady=5, sticky='e')
+            frame.grid_rowconfigure(0, weight=1)
+            frame.grid_rowconfigure(1, weight=1)
+
+        if validation_limits:
+            limit_lo, limit_hi = validation_limits[0], validation_limits[1]
+        entry.bind('<KeyRelease>', lambda event: self.update_buttons_state(entry, limit_lo, limit_hi, event))
+
+        return frame, var 
+
     def create_ramp_rate_entry_widget(self, parent_frame:tk.Frame) -> tk.Frame:
         frame = tk.Frame(parent_frame)
         frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, padx=5, pady=5, sticky='ew')   
@@ -151,7 +171,7 @@ class ProgramEditor:
         frame_entry.grid(row=0, column=0, columnspan=2, pady=5, sticky='we')
 
         return frame
-    
+ 
     def create_combobox_widget(self, parent_frame:tk.Frame, values:list, label_name:str) -> tuple[tk.Frame, ttk.Combobox]:
         frame = tk.Frame(parent_frame)
         frame.grid_columnconfigure(0, weight=1)
@@ -203,12 +223,12 @@ class ProgramEditor:
         frame_entry.grid(row=0, column=0, pady=5, sticky='ew')
         self.duration_vars.append(var)
         
-        frame, var = self.create_entry_widget(frame, "Minutes", 0, validation_limits=(0, 99), horizontal=False)
-        frame.grid(row=0, column=1, pady=5, sticky='ew')
+        frame_entry, var = self.create_entry_widget(frame, "Minutes", 0, validation_limits=(0, 99), horizontal=False)
+        frame_entry.grid(row=0, column=1, pady=5, sticky='ew')
         self.duration_vars.append(var) 
 
-        frame, var = self.create_entry_widget(frame, "Seconds", 1, validation_limits=(1, 99), horizontal=False)
-        frame.grid(row=0, column=2, pady=5, sticky='ew')
+        frame_entry, var = self.create_entry_widget(frame, "Seconds", 1, validation_limits=(1, 99), horizontal=False)
+        frame_entry.grid(row=0, column=2, pady=5, sticky='ew')
         self.duration_vars.append(var)
    
     def create_channel_temp_setpoint_widgets(self, parent_frame:tk.Frame, widget_count:int) -> tk.Frame:
@@ -235,18 +255,17 @@ class ProgramEditor:
         
         self.step_detail_frames.append(frame)
 
-        self.ch_pid_selection_vars = []  # Clear the list before creating new comboboxes
+        self.ch_pid_selection_comboboxes = []  # Clear the list before creating new comboboxes
         for i in range(1, widget_count+1):
             label = tk.Label(frame, text=f"Ch {i} PID Selection:", anchor='center')
             label.grid(row=i, column=0, padx=5, pady=5, sticky='w')
 
             start_value = 5 * (i - 1) + 1
 
-            var = tk.IntVar(value=start_value)
-            self.ch_pid_selection_vars.append(var)
-            combobox = ttk.Combobox(frame, textvariable=var, values=[x for x in range(start_value, start_value + i)], state="readonly", width=2)
+            combobox = ttk.Combobox(frame, values=[x for x in range(start_value, start_value + 5)], state="readonly", width=2)
             combobox.grid(row=i, column=1, padx=5, pady=5, sticky='e')
             combobox.current(0)
+            self.ch_pid_selection_comboboxes.append(combobox)
 
         return frame
 
@@ -272,28 +291,32 @@ class ProgramEditor:
         return frame
 
     def on_step_type_selected(self, event):
-        step_type = self.step_type_dropdown.get()
-        self.create_detail_widgets(step_type)
+        step_type_name = self.step_type_dropdown.get()
+        self.create_detail_widgets(step_type_name)
 
-    def create_detail_widgets(self, step_type):
+    def create_detail_widgets(self, step_type_name:ph.StepTypeName):
         for widget in self.details_frame.winfo_children():
             widget.grid_forget()
 
-        self.details_frame.grid_rowconfigure(0, weight=1)
-        self.details_frame.grid_rowconfigure(1, weight=1)
-        self.details_frame.grid_rowconfigure(2, weight=1)
-        self.details_frame.grid_rowconfigure(3, weight=1)
+        for i in range(4):
+            self.details_frame.grid_rowconfigure(i, weight=1)
 
-        if step_type == ph.StepTypeName.RAMP_BY_TIME.value:
+        self.add_button.config(state='normal')
+        self.update_button.config(state='normal')
+        self.remove_button.config(state='normal')
+
+        if step_type_name == ph.StepTypeName.RAMP_BY_TIME.value:
             self.create_ramp_by_time_widgets()
-        elif step_type == ph.StepTypeName.RAMP_BY_RATE.value:
+        elif step_type_name == ph.StepTypeName.RAMP_BY_RATE.value:
             self.create_ramp_by_rate_widgets()
-        elif step_type == ph.StepTypeName.SOAK.value:
+        elif step_type_name == ph.StepTypeName.SOAK.value:
             self.create_soak_widgets()
-        elif step_type == ph.StepTypeName.JUMP.value:
+        elif step_type_name == ph.StepTypeName.JUMP.value:
             self.create_jump_widgets()
-        elif step_type == ph.StepTypeName.END.value:
+        elif step_type_name == ph.StepTypeName.END.value:
             self.create_end_widgets()
+            self.remove_button.config(state='disabled')
+            self.add_button.config(state='disabled')
 
     def create_ramp_by_time_widgets(self):
         self.create_event_output_widgets(self.details_frame)
@@ -315,31 +338,6 @@ class ProgramEditor:
         self.create_channel_temp_setpoint_widgets(self.details_frame, 2)
         self.create_channel_pid_selection_widgets(self.details_frame, 2)
         self.create_guaranteed_soak_widgets(self.details_frame, 2)
-
-    def create_entry_widget(self, parent_frame:tk.Frame, label_text:str, initial_value=0, validation_limits:tuple = None, horizontal:bool=True) -> tuple[tk.Frame, tk.IntVar]:
-        frame = tk.Frame(parent_frame)
-
-        label = tk.Label(frame, text=label_text, anchor='center')
-
-        var = tk.IntVar(value=initial_value)
-        entry = tk.Entry(frame, textvariable=var, width=5)
-
-        if horizontal:
-            label.grid(row=0, column=0, padx=5, pady=5, sticky='w')
-            entry.grid(row=0, column=1, padx=5, pady=5, sticky='e')
-            frame.grid_columnconfigure(0, weight=1)
-            frame.grid_columnconfigure(1, weight=1)
-        else:
-            label.grid(row=0, column=0, padx=5, pady=5, sticky='w')
-            entry.grid(row=1, column=0, padx=5, pady=5, sticky='e')
-            frame.grid_rowconfigure(0, weight=1)
-            frame.grid_rowconfigure(1, weight=1)
-
-        if validation_limits:
-            limit_lo, limit_hi = validation_limits[0], validation_limits[1]
-        entry.bind('<KeyRelease>', lambda event: self.update_buttons_state(entry, limit_lo, limit_hi, event))
-
-        return frame, var 
 
     def create_jump_widgets(self):
         frame = tk.Frame(self.details_frame)
@@ -388,117 +386,255 @@ class ProgramEditor:
             self.update_button.config(state='disabled')
 
     def create_end_widgets(self):
-        frame = tk.Frame(self.details_frame)
-        frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, padx=0, pady=5, sticky='ew')
-
+        end_frame = tk.Frame(self.details_frame)
+        end_frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, padx=0, pady=5, sticky='ew')
         for i in range(2):
-            frame.grid_columnconfigure(i, weight=1)
-
+            end_frame.grid_columnconfigure(i, weight=1)
         for i in range(3):
-            frame.grid_rowconfigure(i, weight=1)
+            end_frame.grid_rowconfigure(i, weight=1)
 
-        self.step_detail_frames.append(frame)
+        self.step_detail_frames.append(end_frame)
 
-        self.end_vars = [] #clear the list before making new vars
+        self.end_action_comboboxes = [] #clear the list before making new comboboxes
 
-        self.frame_end_action_combobox, self.end_action_combobox = self.create_combobox_widget(frame, [step_type.value for step_type in ph.EndActions], 'End Action:')
-        self.frame_end_action_combobox.grid(row=0, column=0, columnspan=2, padx=0, pady=5, sticky='ew')
-        self.end_action_combobox.config(width=12)
-        self.end_action_combobox.grid(padx=0)
+        frame, combobox = self.create_combobox_widget(end_frame, [step_type.value for step_type in ph.EndActions], 'End Action:')
+        frame.grid(row=0, column=0, padx=6, pady=5, sticky='ew')
+        combobox.config(width=12)
+        combobox.grid(padx=0)
+        self.end_action_comboboxes.append(combobox)
 
-        self.frame_ch1_idle_setpoint_dropdown, self.ch1idle_setpoint_dropdown = self.create_combobox_widget(frame, range(1, 6), 'Ch 1 Idle Setpoint')
-        self.frame_ch1_idle_setpoint_dropdown.grid(row=1, column=0, padx=0, pady=5, sticky='ew')
+        frame, combobox = self.create_combobox_widget(end_frame, range(1, 6), 'Ch 1 Idle Setpoint')
+        frame.grid(row=1, column=0, padx=0, pady=5, sticky='ew')
+        self.end_action_comboboxes.append(combobox)
         
-        self.frame_ch2_idle_setpoint_dropdown, self.ch2idle_setpoint_dropdown = self.create_combobox_widget(frame, range(6, 11), 'Ch 2 Idle Setpoint')
-        self.frame_ch2_idle_setpoint_dropdown.grid(row=2, column=0, padx=0, pady=5, sticky='ew')
+        frame, combobox = self.create_combobox_widget(end_frame, range(6, 11), 'Ch 2 Idle Setpoint')
+        frame.grid(row=2, column=0, padx=0, pady=5, sticky='ew')
+        self.end_action_comboboxes.append(combobox)
 
     def get_duration_timedelta(self) -> td:
-        return td(hours=int(self.hours_entry.get), 
-                minutes=int(self.minutes_entry.get), 
-                seconds=int(self.seconds_entry.get))
+        return td(hours=int(self.duration_vars[0].get()), 
+                minutes=int(self.duration_vars[1].get()), 
+                seconds=int(self.duration_vars[2].get()))
 
+    def get_step_from_current_selection(self) -> ph.Step:
+        step_type_name = self.step_type_dropdown.get()
+
+        if step_type_name == ph.StepTypeName.RAMP_BY_TIME.value:
+            wait_for_state, event_output_states = self.get_event_output_states()
+            step = ph.Step(
+                type_name=ph.StepTypeName.RAMP_BY_TIME,
+                details = ph.RampTime(
+                    wait_for=wait_for_state,
+                    event_output_states=event_output_states,
+                    duration=self.get_duration_timedelta(),
+                    ch1_temp_setpoint=self.channel_temp_setpoint_vars[0].get(),
+                    ch2_temp_setpoint=self.channel_temp_setpoint_vars[1].get(),
+                    ch1_pid_selection=self.ch_pid_selection_comboboxes[0].current(),
+                    ch2_pid_selection=self.ch_pid_selection_comboboxes[1].current(),
+                    guaranteed_soak_1=self.guaranteed_soak_vars[0].get(),
+                    guaranteed_soak_2=self.guaranteed_soak_vars[1].get()
+                )
+            )
+        elif step_type_name == ph.StepTypeName.RAMP_BY_RATE.value:
+            wait_for_state, event_output_states = self.get_event_output_states()
+            step = ph.Step(
+                type_name=ph.StepTypeName.RAMP_BY_RATE,
+                details = ph.RampRate(
+                    wait_for=wait_for_state,
+                    event_output_states=event_output_states,
+                    rate=self.ramp_rate_var.get(),
+                    ch1_temp_setpoint=self.channel_temp_setpoint_vars[0].get(),
+                    ch1_pid_selection=self.ch_pid_selection_comboboxes[0].current(),
+                    guaranteed_soak_1=self.guaranteed_soak_vars[0].get()
+                )
+            )
+        elif step_type_name == ph.StepTypeName.SOAK.value:
+            wait_for_state, event_output_states = self.get_event_output_states()
+            step = ph.Step(
+                type_name=ph.StepTypeName.SOAK,
+                details = ph.Soak(
+                    wait_for=wait_for_state,
+                    event_output_states=event_output_states,
+                    duration=self.get_duration_timedelta(),
+                    ch1_pid_selection=self.ch_pid_selection_comboboxes[0].current(),
+                    ch2_pid_selection=self.ch_pid_selection_comboboxes[1].current(),
+                    guaranteed_soak_1=self.guaranteed_soak_vars[0].get(),
+                    guaranteed_soak_2=self.guaranteed_soak_vars[1].get()
+                )
+            )
+        elif step_type_name == ph.StepTypeName.JUMP.value:
+            step = ph.Step(
+                type_name=ph.StepTypeName.JUMP, 
+                details = ph.Jump(
+                    jump_to_profile=self.jump_vars[0].get(),
+                    jump_to_step=self.jump_vars[1].get(),
+                    number_of_repeats=self.jump_vars[2].get()
+                )
+            )
+        elif step_type_name == ph.StepTypeName.END.value:
+            step = ph.Step(
+                type_name=ph.StepTypeName.END, 
+                details = ph.End(
+                    end_action=self.end_action_comboboxes[0].get(),
+                    ch1_idle_setpoint=self.end_action_comboboxes[1].get(),
+                    ch2_idle_setpoint=self.end_action_comboboxes[2].get()
+                )
+            )
+
+        return step
+    
     def add_step(self):
-        step_type = self.step_type_dropdown.get()
+        step = self.get_step_from_current_selection()
 
-        if step_type == ph.StepTypeName.RAMP_BY_TIME.value:
-            wait_for_state, event_output_states = self.get_event_output_states()
-            self.get_duration_timedelta()
-            self.channel_temp_setpoint_vars[0].get()
-            self.channel_temp_setpoint_vars[1].get()
-            self.ch_pid_selection_vars[0].get() - 1
-            self.ch_pid_selection_vars[1].get() - 1
-            self.guaranteed_soak_vars[0].get()
-            self.guaranteed_soak_vars[1].get()
-        elif step_type == ph.StepTypeName.RAMP_BY_RATE.value:
-            wait_for_state, event_output_states = self.get_event_output_states()
-            float(self.ramp_rate_var.get())
-            self.channel_temp_setpoint_vars[0].get()
-            self.ch_pid_selection_vars[0].get() - 1
-            self.guaranteed_soak_vars[0].get()
-        elif step_type == ph.StepTypeName.SOAK.value:
-            wait_for_state, event_output_states = self.get_event_output_states()
-            self.get_duration_timedelta()
-            self.ch_pid_selection_vars[0].get() - 1
-            self.ch_pid_selection_vars[1].get() - 1
-            self.guaranteed_soak_vars[0].get()
-            self.guaranteed_soak_vars[1].get()
-        elif step_type == ph.StepTypeName.JUMP.value:
-            self.jump_vars[0].get()
-            self.jump_vars[1].get()
-            self.jump_vars[2].get()
-        elif step_type == ph.StepTypeName.END.value:
-            pass
+        selected_item = self.tree.selection()
+        if selected_item:
+            tree_item_index = self.tree.index(selected_item)
+            self.step_list.insert(tree_item_index, step)
+
+            tree_index = self.tree.index(self.tree.get_children()[tree_item_index])
+
+        else: #if nothing is selected, add before the end step
+            self.step_list.insert(-1, step)
+    
+            tree_index = self.tree.index(self.tree.get_children()[-1])
+        
+        new_values = (f"{tree_index}", f"{self.step_list[tree_index].type_name}")
+        self.tree.insert("", tree_index, values=new_values)
+
+        self.reindex_tree_view()
 
     def update_step(self):
-        # Update step logic
-        pass
+        selected_item = self.tree.selection()
+        if selected_item:
+            self.step_list[self.tree.index(selected_item)] = self.get_step_from_current_selection()
 
+            item_id = selected_item[0]
+            new_values = (f"{self.tree.index(selected_item)}", f"{self.step_list[self.tree.index(selected_item)].type_name}")
+            self.tree.item(item_id, values=new_values)
+
+            self.reindex_tree_view()
+        
     def remove_step(self):
-        # Remove step logic
-        pass
+        selected_item = self.tree.selection()
+        if selected_item:
+            self.step_list.remove(self.tree.index(selected_item))
+
+            for item in selected_item:
+                self.tree.delete(item)
+
+            self.reindex_tree_view()
 
     def on_treeview_select(self, event):
         selected_item = self.tree.selection()
-        if selected_item:
-            self.current_step_id = self.tree.item(selected_item)['text']
-            self.load_step_details(self.current_step_id)
 
-    def load_step_details(self, step_id):
-        # Load step details logic
-        pass
+        if selected_item: # load into step details frame
+            step = self.step_list[self.tree.index(selected_item)]
+
+            if step.type_name == ph.StepTypeName.RAMP_BY_TIME:
+                self.step_type_dropdown.set(step.type_name)
+                self.create_detail_widgets(step.type_name)
+
+                for idx, var in enumerate(self.event_output_vars):
+                    var.set(step.details.event_output_states[idx])
+
+                hours, minutes, seconds = ph.timedelta_to_hours_minutes_seconds(step.details.duration)
+                self.duration_vars[0].set(hours)
+                self.duration_vars[1].set(minutes)
+                self.duration_vars[2].set(seconds)
+
+                self.channel_temp_setpoint_vars[0].set(step.details.ch1_temp_setpoint)
+                self.channel_temp_setpoint_vars[1].set(step.details.ch2_temp_setpoint)
+                self.ch_pid_selection_comboboxes[0].current(step.details.ch1_pid_selection)
+                self.ch_pid_selection_comboboxes[1].current(step.details.ch2_pid_selection)
+                self.guaranteed_soak_vars[0].set(step.details.guaranteed_soak_1)
+                self.guaranteed_soak_vars[1].set(step.details.guaranteed_soak_2)
+
+            elif step.type_name == ph.StepTypeName.RAMP_BY_RATE:
+                self.step_type_dropdown.set(step.type_name)
+                self.create_detail_widgets(step.type_name)
+
+                for idx, var in enumerate(self.event_output_vars):
+                    var.set(step.details.event_output_states[idx])
+                
+                self.ramp_rate_var.set(step.details.rate)
+                self.channel_temp_setpoint_vars[0].set(step.details.ch1_temp_setpoint)
+                self.ch_pid_selection_comboboxes[0].current(step.details.ch1_pid_selection)
+                self.guaranteed_soak_vars[0].set(step.details.guaranteed_soak_1)
+
+            elif step.type_name == ph.StepTypeName.SOAK:
+                self.step_type_dropdown.set(step.type_name)
+                self.create_detail_widgets(step.type_name)
+
+                for idx, var in enumerate(self.event_output_vars):
+                    var.set(step.details.event_output_states[idx])
+
+                hours, minutes, seconds = ph.timedelta_to_hours_minutes_seconds(step.details.duration)
+                self.ch_pid_selection_comboboxes[0].current(step.details.ch1_pid_selection)
+                self.ch_pid_selection_comboboxes[1].current(step.details.ch2_pid_selection)
+                self.guaranteed_soak_vars[0].set(step.details.guaranteed_soak_1)
+                self.guaranteed_soak_vars[1].set(step.details.guaranteed_soak_2)
+
+            elif step.type_name == ph.StepTypeName.JUMP:
+                self.step_type_dropdown.set(step.type_name)
+                self.create_detail_widgets(step.type_name)
+
+                self.jump_vars[0] = step.details.jump_to_profile
+                self.jump_vars[1] = step.details.jump_to_step
+                self.jump_vars[2] = step.details.number_of_repeats
+
+            elif step.type_name == ph.StepTypeName.END:
+                self.step_type_dropdown.set(step.type_name)
+                self.create_detail_widgets(step.type_name)
+            
+                self.end_action_comboboxes[0].set(step.details.end_action)
+                self.end_action_comboboxes[1].set(step.details.ch1_idle_setpoint)
+                self.end_action_comboboxes[2].set(step.details.ch2_idle_setpoint)
+
+    def reindex_tree_view(self):
+        children = self.tree.get_children()
+
+        for new_index, item_id in enumerate(children, start=0):
+            self.tree.item(item_id, values=(new_index, self.tree.item(item_id, 'values')[1]))
+
+    def build_tree_view(self):
+        self.tree.delete(*self.tree.get_children())
+        
+        for idx, step in enumerate(self.step_list):
+            self.tree.insert("", "end", text=step.type_name, values=(idx, step.type_name))
 
     def new_file(self):
-        self.current_file = None
         self.tree.delete(*self.tree.get_children())
+
+        self.step_list = []
+
+        self.step_list.append(
+            ph.Step(
+                type_name=ph.StepTypeName.END,
+                details=ph.End(
+                    end_action=[step_type.value for step_type in ph.EndActions][0],
+                    ch1_idle_setpoint=25,
+                    ch2_idle_setpoint=25
+                )
+            )
+        )
+
+        self.tree.insert("", "end", values=(f"0", f"{ph.StepTypeName.END}"))
 
     def open_file(self):
-        file_path = filedialog.askopenfilename(defaultextension=FILE_EXTENSION, filetypes=[("CSV Files", FILE_EXTENSION)])
+        file_path = Path(filedialog.askopenfilename(defaultextension=FILE_EXTENSION, filetypes=[("CSV Files", FILE_EXTENSION)], title="Open file"))
         if file_path:
-            self.current_file = file_path
-            self.load_file(file_path)
-
-    def load_file(self, file_path):
-        self.tree.delete(*self.tree.get_children())
-        with open(file_path, 'r') as file:
-            reader = csv.DictReader(file)
-            for row in reader:
-                self.tree.insert('', 'end', text=row['step_type'], values=(row['step_type'], row['key_value']))
+            self.step_list = ph.read_program_from_file(file_path).steps
+            self.build_tree_view()
 
     def save_file(self):
-        if self.current_file:
-            with open(self.current_file, 'w', newline='') as file:
-                writer = csv.DictWriter(file, fieldnames=HEADER)
-                writer.writeheader()
-                for item in self.tree.get_children():
-                    values = self.tree.item(item, 'values')
-                    writer.writerow({'step_type': values[0], 'key_value': values[1]})
-        else:
-            file_path = filedialog.asksaveasfilename(defaultextension=FILE_EXTENSION, filetypes=[("CSV Files", FILE_EXTENSION)])
-            if file_path:
-                self.current_file = file_path
-                self.save_file()
+        file_path = Path(filedialog.asksaveasfilename(defaultextension=FILE_EXTENSION, filetypes=[("CSV Files", FILE_EXTENSION)], title="Save file"))
+        if file_path:
+            program = ph.Program(name=file_path.stem, steps=self.step_list)
+            ph.write_program_to_file(program, file_path)
+            messagebox.showinfo("File save successful", f"File successfully saved to: {file_path}")
 
     def show_help(self):
+        #needs update after completion
         messagebox.showinfo("Help", "Help information goes here.")
         width = self.root.winfo_width()
         height = self.root.winfo_height()

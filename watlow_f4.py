@@ -96,7 +96,7 @@ class WatlowF4:
             self.logger.error(f"Error selecting step {step_number}: {e}")
             raise
 
-    def insert_step(self, step_number: int, step: ph.StepDetails):
+    def insert_step(self, step_number: int, step: ph.StepDetail):
         """
             Assumes the watlow has the desired profile selected already
             The command to save to EEPROM must be used to make changes permenant
@@ -113,19 +113,19 @@ class WatlowF4:
                 self.instrument.write_register(WatlowF4Registers.PROFILE_WAIT_FOR, int(step.wait_for))
                 self.logger.debug(f"Set Wait For to {step.wait_for}")
 
-                for idx, enabled_state in enumerate(step.event_output):
+                for idx, enabled_state in enumerate(step.event_output_states):
                     self.instrument.write_register(idx+WatlowF4Registers.PROFILE_EVENT_OUTPUT_1, enabled_state)
                 self.logger.debug(f"Set Event Output {idx+1} to {enabled_state}")
 
-                for idx, enabled_state in enumerate(step.event_output):
+                for idx, enabled_state in enumerate(step.event_output_states):
                     self.instrument.write_register(idx+WatlowF4Registers.PROFILE_EVENT_OUTPUT_1, enabled_state)
                 self.logger.debug(f"Set Event Output {idx+1} to {enabled_state}")
 
-                self.instrument.write_register(WatlowF4Registers.PROFILE_RAMP_SETPOINT_CHANNEL_1, step.ch1_setpoint)
-                self.logger.debug(f"Set Channel 1  PID to {step.ch1_setpoint}")
+                self.instrument.write_register(WatlowF4Registers.PROFILE_RAMP_SETPOINT_CHANNEL_1, step.ch1_temp_setpoint)
+                self.logger.debug(f"Set Channel 1  PID to {step.ch1_temp_setpoint}")
 
-                self.instrument.write_register(WatlowF4Registers.PROFILE_RAMP_SETPOINT_CHANNEL_2, step.ch2_setpoint)
-                self.logger.debug(f"Set Channel 2 PID to {step.ch2_setpoint}")
+                self.instrument.write_register(WatlowF4Registers.PROFILE_RAMP_SETPOINT_CHANNEL_2, step.ch2_temp_setpoint)
+                self.logger.debug(f"Set Channel 2 PID to {step.ch2_temp_setpoint}")
 
                 self.instrument.write_register(WatlowF4Registers.PROFILE_PID_SET_CHANNEL_1, step.ch1_pid_selection)
                 self.logger.debug(f"Set Channel 1  PID to {step.ch1_pid_selection}")
@@ -146,15 +146,15 @@ class WatlowF4:
                 self.instrument.write_register(WatlowF4Registers.PROFILE_WAIT_FOR, int(step.wait_for))
                 self.logger.debug(f"Set Wait For to {step.wait_for}")
 
-                for idx, enabled_state in enumerate(step.event_output):
+                for idx, enabled_state in enumerate(step.event_output_states):
                     self.instrument.write_register(idx+WatlowF4Registers.PROFILE_EVENT_OUTPUT_1, enabled_state)
                 self.logger.debug(f"Set Event Output {idx+1} to {enabled_state}")
 
                 self.instrument.write_register(WatlowF4Registers.PROFILE_RATE_RAMP_RATE_STEP, step.rate)
                 self.logger.debug(f"Set Ramp Rate to {step.rate}")
 
-                self.instrument.write_register(WatlowF4Registers.PROFILE_RAMP_SETPOINT_CHANNEL_1, step.ch1_setpoint)
-                self.logger.debug(f"Set Ramp Target to {step.ch1_setpoint}")
+                self.instrument.write_register(WatlowF4Registers.PROFILE_RAMP_SETPOINT_CHANNEL_1, step.ch1_temp_setpoint)
+                self.logger.debug(f"Set Ramp Target to {step.ch1_temp_setpoint}")
 
                 self.instrument.write_register(WatlowF4Registers.PROFILE_PID_SET_CHANNEL_1, step.ch1_pid_selection)
                 self.logger.debug(f"Set Channel PID to {step.ch1_pid_selection}")
@@ -169,7 +169,7 @@ class WatlowF4:
                 self.instrument.write_register(WatlowF4Registers.PROFILE_WAIT_FOR, int(step.wait_for))
                 self.logger.debug(f"Set Wait For to {step.wait_for}")
 
-                for idx, enabled_state in enumerate(step.event_output):
+                for idx, enabled_state in enumerate(step.event_output_states):
                     self.instrument.write_register(idx+WatlowF4Registers.PROFILE_EVENT_OUTPUT_1, enabled_state)
                 self.logger.debug(f"Set Event Output {idx+1} to {enabled_state}")
 
@@ -215,11 +215,11 @@ class WatlowF4:
                 self.instrument.write_register(WatlowF4Registers.PROFILE_END_ACTION, step.end_action)
                 self.logger.debug(f"set end step to to set {step.end_action}")
 
-                self.instrument.write_register(WatlowF4Registers.PROFILE_END_IDLE_SETPOINT_CHANNEL_1, step.ch1_idle_set_point)
-                self.logger.debug(f"set end step to to set {step.ch1_idle_set_point}")
+                self.instrument.write_register(WatlowF4Registers.PROFILE_END_IDLE_SETPOINT_CHANNEL_1, step.ch1_idle_setpoint)
+                self.logger.debug(f"set end step to to set {step.ch1_idle_setpoint}")
                 
-                self.instrument.write_register(WatlowF4Registers.PROFILE_END_IDLE_SETPOINT_CHANNEL_2, step.ch2_idle_set_point)
-                self.logger.debug(f"set end step to to set {step.ch2_idle_set_point}")
+                self.instrument.write_register(WatlowF4Registers.PROFILE_END_IDLE_SETPOINT_CHANNEL_2, step.ch2_idle_setpoint)
+                self.logger.debug(f"set end step to to set {step.ch2_idle_setpoint}")
 
             self.logger.debug(f"Successfully modified step {step_number}")
         except Exception as e:

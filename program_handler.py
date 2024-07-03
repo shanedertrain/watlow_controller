@@ -30,10 +30,10 @@ class EndActions(StrEnum):
 @dataclass
 class RampTime:
     wait_for: bool
-    event_output: List[bool]  # Event Output (1 to 8)
+    event_output_states: List[bool]  # Event Output (1 to 8)
     duration: td
-    ch1_setpoint: float
-    ch2_setpoint: float
+    ch1_temp_setpoint: int
+    ch2_temp_setpoint: int
     ch1_pid_selection: int  # 1 to 5
     ch2_pid_selection: int  # 6 to 10
     guaranteed_soak_1: bool
@@ -43,9 +43,9 @@ class RampTime:
 @dataclass
 class RampRate:
     wait_for: bool
-    event_output: List[bool]  # Event Output (1 to 8)
+    event_output_states: List[bool]  # Event Output (1 to 8)
     rate: float
-    ch1_setpoint: float
+    ch1_temp_setpoint: int
     ch1_pid_selection: int  # 1 to 5
     guaranteed_soak_1: bool
     type_enum = 2
@@ -53,7 +53,7 @@ class RampRate:
 @dataclass
 class Soak:
     wait_for: bool
-    event_output: List[bool]  # Event Output (1 to 8)
+    event_output_states: List[bool]  # Event Output (1 to 8)
     duration: td
     ch1_pid_selection: int  # 1 to 5
     ch2_pid_selection: int  # 6 to 10
@@ -71,21 +71,36 @@ class Jump:
 @dataclass
 class End:
     end_action: int  # 0 to 3
-    ch1_idle_set_point: float
-    ch2_idle_set_point: float
+    ch1_idle_setpoint: int
+    ch2_idle_setpoint: int
     type_enum = 5
 
-StepDetails = Union[RampTime, RampRate, Soak, Jump, End]
+StepDetail = Union[RampTime, RampRate, Soak, Jump, End]
 
 @dataclass
 class Step:
     type_name: StepTypeName
-    details: StepDetails
+    details: StepDetail
 
 @dataclass
 class Program:
     name: str
     steps: List[Step]
+
+def timedelta_to_hours_minutes_seconds(timedelta: td):
+    total_seconds = timedelta.total_seconds()
+    days, remainder = divmod(total_seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    hours_combined = (days * 24) + hours
+    return (int(hours_combined), int(minutes), int(seconds))
+
+def total_seconds_to_timedelta(total_seconds:int) -> td:
+    days, remainder = divmod(total_seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return td(days=days, hours=hours, minutes=minutes, seconds=seconds)
 
 def custom_encoder(obj):
     if dataclasses.is_dataclass(obj):
@@ -93,11 +108,7 @@ def custom_encoder(obj):
     elif isinstance(obj, dt):
         return obj.strftime('%H:%M:%S')
     elif isinstance(obj, td):
-        total_seconds = obj.total_seconds()
-        days, remainder = divmod(total_seconds, 86400)
-        hours, remainder = divmod(remainder, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        return f'{int(days):02}:{int(hours):02}:{int(minutes):02}:{int(seconds):02}'
+        return f'{obj.total_seconds():.0f}'
     elif isinstance(obj, StepTypeName):
         return obj.value
     raise TypeError(f"Type {type(obj).__name__} not serializable")
@@ -106,35 +117,35 @@ def dict_to_step_details(d, type_name: StepTypeName):
     if type_name == StepTypeName.RAMP_BY_TIME:
         return RampTime(
             wait_for=d.get('wait_for', False),
-            event_output=d.get('event_output', [False] * 8),
-            duration=td(seconds=d.get('duration', 0)),
-            ch1_setpoint=d.get('ch1_setpoint', 0.0),
-            ch2_setpoint=d.get('ch2_setpoint', 0.0),
-            ch1_pid_selection=d.get('ch1_pid_set', 1),
-            ch2_pid_selection=d.get('ch2_pid_set', 6),
-            guaranteed_soak_1=d.get('guar_soak1', False),
-            guaranteed_soak_2=d.get('guar_soak2', False)
+            event_output_states=d.get('event_output', [False] * 8),
+            duration=total_seconds_to_timedelta(int(d.get('duration', 0))),
+            ch1_temp_setpoint=d.get('ch1_temp_setpoint', 25),
+            ch2_temp_setpoint=d.get('ch2_temp_setpoint', 25),
+            ch1_pid_selection=d.get('ch1_pid_selection', 0),
+            ch2_pid_selection=d.get('ch2_pid_selection', 0),
+            guaranteed_soak_1=d.get('guaranteed_soak_1', False),
+            guaranteed_soak_2=d.get('guaranteed_soak_2', False)
         )
     elif type_name == StepTypeName.RAMP_BY_RATE:
         return RampRate(
             wait_for=d.get('wait_for', False),
-            event_output=d.get('event_output', [False] * 8),
+            event_output_states=d.get('event_output', [False] * 8),
             rate=d.get('rate', 0.0),
-            ch1_setpoint=d.get('ch1_setpoint', 0.0),
-            ch1_pid_selection=d.get('ch1_pid_set', 1),
-            guaranteed_soak_1=d.get('guar_soak1', False)
+            ch1_temp_setpoint=d.get('ch1_temp_setpoint', 25),
+            ch1_pid_selection=d.get('ch1_pid_selection', 0),
+            guaranteed_soak_1=d.get('guaranteed_soak_1', False)
         )
     elif type_name == StepTypeName.SOAK:
         days, hours, minutes, seconds = map(int, d.get('time', '0:0:0:0').split(':'))
         total_seconds = days * 86400 + hours * 3600 + minutes * 60 + seconds
         return Soak(
             wait_for=d.get('wait_for', False),
-            event_output=d.get('event_output', [False] * 8),
+            event_output_states=d.get('event_output', [False] * 8),
             duration=td(seconds=total_seconds),
-            ch1_pid_selection=d.get('ch1_pid_set', 1),
-            ch2_pid_selection=d.get('ch2_pid_set', 6),
-            guaranteed_soak_1=d.get('guar_soak1', 0),
-            guaranteed_soak_2=d.get('guar_soak2', 0)
+            ch1_pid_selection=d.get('ch1_pid_selection', 0),
+            ch2_pid_selection=d.get('ch2_pid_selection', 0),
+            guaranteed_soak_1=d.get('guaranteed_soak_1', False),
+            guaranteed_soak_2=d.get('guaranteed_soak_2', False)
         )
     elif type_name == StepTypeName.JUMP:
         return Jump(
@@ -145,8 +156,8 @@ def dict_to_step_details(d, type_name: StepTypeName):
     elif type_name == StepTypeName.END:
         return End(
             end_action=d.get('end_action', 0),
-            ch1_idle_set_point=d.get('ch1_idle_set_point', 0.0),
-            ch2_idle_set_point=d.get('ch2_idle_set_point', 0.0)
+            ch1_idle_setpoint=d.get('ch1_idle_set_point', 0),
+            ch2_idle_setpoint=d.get('ch2_idle_set_point', 0)
         )
     else:
         raise ValueError(f"Unknown step type: {type_name}")
@@ -183,10 +194,10 @@ if __name__ == "__main__":
                 type_name=StepTypeName.RAMP_BY_TIME,
                 details=RampTime(
                     wait_for=True,
-                    event_output=[False] * 8,
+                    event_output_states=[False] * 8,
                     duration=td(minutes=60),
-                    ch1_setpoint=100.0,
-                    ch2_setpoint=200.0,
+                    ch1_temp_setpoint=100.0,
+                    ch2_temp_setpoint=200.0,
                     ch1_pid_selection=1,
                     ch2_pid_selection=6,
                     guaranteed_soak_1=True,
@@ -197,9 +208,9 @@ if __name__ == "__main__":
                 type_name=StepTypeName.RAMP_BY_RATE,
                 details=RampRate(
                     wait_for=True,
-                    event_output=[False] * 8,
+                    event_output_states=[False] * 8,
                     rate=5.0,
-                    ch1_setpoint=150.0,
+                    ch1_temp_setpoint=150.0,
                     ch1_pid_selection=2,
                     guaranteed_soak_1=True
                 )
@@ -208,7 +219,7 @@ if __name__ == "__main__":
                 type_name=StepTypeName.SOAK,
                 details=Soak(
                     wait_for=True,
-                    event_output=[False] * 8,
+                    event_output_states=[False] * 8,
                     duration=td(days=1, hours=5, minutes=30, seconds=15),
                     ch1_pid_selection=3,
                     ch2_pid_selection=7,
@@ -228,8 +239,8 @@ if __name__ == "__main__":
                 type_name=StepTypeName.END,
                 details=End(
                     end_action=1,
-                    ch1_idle_set_point=20.0,
-                    ch2_idle_set_point=25.0
+                    ch1_idle_setpoint=20.0,
+                    ch2_idle_setpoint=25.0
                 )
             )
         ]
