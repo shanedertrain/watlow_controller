@@ -73,6 +73,8 @@ class ProgramEditor:
         detail_frame.grid_rowconfigure(0, weight=0)
         detail_frame.grid_rowconfigure(1, weight=0)
         detail_frame.grid_rowconfigure(2, weight=0)
+        detail_frame.grid_rowconfigure(3, weight=1)
+        detail_frame.grid_rowconfigure(4, weight=1)
         detail_frame.grid_columnconfigure(0, weight=1)
         detail_frame.grid_columnconfigure(1, weight=0)
 
@@ -528,6 +530,11 @@ class ProgramEditor:
         self.reindex_tree_view()
 
     def update_step(self):
+        #prevent updating end step to other than an end step type
+        if self.current_selected_item[0] == self.tree.get_children()[-1]:
+            if self.step_type_dropdown.get() != ph.StepTypeName.END.value:
+                return
+            
         self.step_list[self.tree.index(self.current_selected_item)] = self.get_step_from_current_selection()
 
         item_id = self.current_selected_item

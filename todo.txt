@@ -1,5 +1,3 @@
-#add back draggable steps
-
 #make step buttons always stay at bottom
 
 #TODO: ADD NEW HELP DIALOG
