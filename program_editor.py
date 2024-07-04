@@ -125,6 +125,7 @@ class ProgramEditor:
 
         self.menu.add_separator()  # Add a separator before Help
         self.menu.add_command(label="Help", command=self.show_help)  # Direct command to show help
+        self.menu.add_command(label="About", command=self.show_about)  # Direct command to show help
 
         # Configure root grid
         self.root.grid_rowconfigure(0, weight=1)
@@ -667,10 +668,13 @@ class ProgramEditor:
     def show_help(self):
         #needs update after completion
         messagebox.showinfo("Help", "Help information goes here.")
-        width = self.root.winfo_width()
-        height = self.root.winfo_height()
-        print(f"Width: {width}, Height: {height}")
 
+    def show_about(self):
+        messagebox.showinfo("Help", 
+            """Developed by Cameron Basham, 2024.
+    https://github.com/shanedertrain/watlow_controller
+    License: GNU GENERAL PUBLIC LICENSE Version 3"""
+        )
 if __name__ == "__main__":
     root = tk.Tk()
     app = ProgramEditor(root)
