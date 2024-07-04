@@ -6,14 +6,6 @@ import dataclasses
 from dataclasses import dataclass, asdict
 from enum import StrEnum
 
-def get_hms(td: td):
-    total_seconds = int(td.total_seconds())
-    hours = total_seconds // 3600
-    remaining_seconds = total_seconds % 3600
-    minutes = remaining_seconds // 60
-    seconds = remaining_seconds % 60
-    return hours, minutes, seconds
-
 class StepTypeName(StrEnum):
     RAMP_BY_TIME = 'Ramp by Time'
     RAMP_BY_RATE = 'Ramp by Rate'
@@ -87,38 +79,36 @@ class Program:
     name: str
     steps: List[Step]
 
-def timedelta_to_hours_minutes_seconds(timedelta: td):
-    total_seconds = timedelta.total_seconds()
-    days, remainder = divmod(total_seconds, 86400)
-    hours, remainder = divmod(remainder, 3600)
-    minutes, seconds = divmod(remainder, 60)
+def timedelta_to_hours_minutes_seconds(td: td):
+    total_seconds = int(td.total_seconds())
+    hours = total_seconds // 3600
+    remaining_seconds = total_seconds % 3600
+    minutes = remaining_seconds // 60
+    seconds = remaining_seconds % 60
+    return hours, minutes, seconds
 
-    hours_combined = (days * 24) + hours
-    return (int(hours_combined), int(minutes), int(seconds))
-
-def total_seconds_to_timedelta(total_seconds:int) -> td:
-    days, remainder = divmod(total_seconds, 86400)
-    hours, remainder = divmod(remainder, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    return td(days=days, hours=hours, minutes=minutes, seconds=seconds)
+def time_string_to_timedelta(time_string:str) -> td:
+    hours, minutes, seconds = (int(part) for part in time_string.split(":"))
+    return td(hours=hours, minutes=minutes, seconds=seconds)
 
 def custom_encoder(obj):
     if dataclasses.is_dataclass(obj):
         return asdict(obj)
-    elif isinstance(obj, dt):
-        return obj.strftime('%H:%M:%S')
     elif isinstance(obj, td):
-        return f'{obj.total_seconds():.0f}'
+        hours, minutes, seconds = timedelta_to_hours_minutes_seconds(obj)
+        return f'{int(hours):02}:{int(minutes):02}:{int(seconds):02}'
     elif isinstance(obj, StepTypeName):
         return obj.value
+    elif isinstance(obj, dt):
+        return obj.strftime('%H:%M:%S')
     raise TypeError(f"Type {type(obj).__name__} not serializable")
 
 def dict_to_step_details(d, type_name: StepTypeName):
     if type_name == StepTypeName.RAMP_BY_TIME:
         return RampTime(
             wait_for=d.get('wait_for', False),
-            event_output_states=d.get('event_output', [False] * 8),
-            duration=total_seconds_to_timedelta(int(d.get('duration', 0))),
+            event_output_states=d.get('event_output_states', [False] * 8),
+            duration=time_string_to_timedelta(d.get('duration', "00:00:00")),
             ch1_temp_setpoint=d.get('ch1_temp_setpoint', 25),
             ch2_temp_setpoint=d.get('ch2_temp_setpoint', 25),
             ch1_pid_selection=d.get('ch1_pid_selection', 0),
@@ -129,19 +119,17 @@ def dict_to_step_details(d, type_name: StepTypeName):
     elif type_name == StepTypeName.RAMP_BY_RATE:
         return RampRate(
             wait_for=d.get('wait_for', False),
-            event_output_states=d.get('event_output', [False] * 8),
+            event_output_states=d.get('event_output_states', [False] * 8),
             rate=d.get('rate', 0.0),
             ch1_temp_setpoint=d.get('ch1_temp_setpoint', 25),
             ch1_pid_selection=d.get('ch1_pid_selection', 0),
             guaranteed_soak_1=d.get('guaranteed_soak_1', False)
         )
     elif type_name == StepTypeName.SOAK:
-        days, hours, minutes, seconds = map(int, d.get('time', '0:0:0:0').split(':'))
-        total_seconds = days * 86400 + hours * 3600 + minutes * 60 + seconds
         return Soak(
             wait_for=d.get('wait_for', False),
-            event_output_states=d.get('event_output', [False] * 8),
-            duration=td(seconds=total_seconds),
+            event_output_states=d.get('event_output_states', [False] * 8),
+            duration=time_string_to_timedelta(d.get('duration', "00:00:00")),
             ch1_pid_selection=d.get('ch1_pid_selection', 0),
             ch2_pid_selection=d.get('ch2_pid_selection', 0),
             guaranteed_soak_1=d.get('guaranteed_soak_1', False),

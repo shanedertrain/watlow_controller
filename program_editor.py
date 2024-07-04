@@ -26,7 +26,9 @@ class ProgramEditor:
     ramp_rate_var:tk.StringVar = None
     duration_vars:list[tk.IntVar] = []
     jump_vars:list[tk.IntVar] = []
-    end_action_comboboxes:list[ttk.Combobox] = []
+    end_action_vars:list[tk.IntVar] = []
+    current_selected_item = None
+    step_deleted:bool = False
 
     def __init__(self, root):
         self.root = root
@@ -88,7 +90,7 @@ class ProgramEditor:
         self.step_type_dropdown = ttk.Combobox(step_type_dropdown_frame, values=[step_type.value for step_type in ph.StepTypeName if step_type != ph.StepTypeName.END], state="readonly")
         self.step_type_dropdown.grid(row=1, column=0, padx=20, pady=5, sticky='ew')
         self.step_type_dropdown.bind("<<ComboboxSelected>>", self.on_step_type_selected)
-        self.step_type_dropdown.current(0)
+        self.step_type_dropdown.set(ph.StepTypeName.END.value)
 
         # Setup detail section
         self.details_frame = tk.Frame(detail_frame)
@@ -211,7 +213,7 @@ class ProgramEditor:
 
     def create_duration_widgets(self, parent_frame:tk.Frame):
         frame = tk.Frame(parent_frame)
-        frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, pady=5, sticky='ew')
+        frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, pady=2, sticky='ew')
         for i in range(3):
             frame.grid_columnconfigure(i, weight=1)
         
@@ -219,16 +221,18 @@ class ProgramEditor:
 
         self.duration_vars = []
 
+        tk.Label(frame, text="Duration", anchor='center').grid(row=0, columnspan=3, pady=0)
+
         frame_entry, var = self.create_entry_widget(frame, "Hours", 0, validation_limits=(0, 99), horizontal=False)
-        frame_entry.grid(row=0, column=0, pady=5, sticky='ew')
+        frame_entry.grid(row=1, column=0, pady=0, sticky='ew')
         self.duration_vars.append(var)
         
         frame_entry, var = self.create_entry_widget(frame, "Minutes", 0, validation_limits=(0, 99), horizontal=False)
-        frame_entry.grid(row=0, column=1, pady=5, sticky='ew')
+        frame_entry.grid(row=1, column=1, pady=0, sticky='ew')
         self.duration_vars.append(var) 
 
         frame_entry, var = self.create_entry_widget(frame, "Seconds", 1, validation_limits=(1, 99), horizontal=False)
-        frame_entry.grid(row=0, column=2, pady=5, sticky='ew')
+        frame_entry.grid(row=1, column=2, pady=0, sticky='ew')
         self.duration_vars.append(var)
    
     def create_channel_temp_setpoint_widgets(self, parent_frame:tk.Frame, widget_count:int) -> tk.Frame:
@@ -294,6 +298,10 @@ class ProgramEditor:
         step_type_name = self.step_type_dropdown.get()
         self.create_detail_widgets(step_type_name)
 
+        if self.current_selected_item:
+            if self.tree.item(self.current_selected_item, 'values')[-1] != ph.StepTypeName.END.value: #prevent from updating END step
+                self.update_button.config(state='disabled')
+
     def create_detail_widgets(self, step_type_name:ph.StepTypeName):
         for widget in self.details_frame.winfo_children():
             widget.grid_forget()
@@ -302,9 +310,9 @@ class ProgramEditor:
             self.details_frame.grid_rowconfigure(i, weight=1)
 
         self.add_button.config(state='normal')
-        self.update_button.config(state='normal')
         self.remove_button.config(state='normal')
-
+        self.update_button.config(state='normal')
+        
         if step_type_name == ph.StepTypeName.RAMP_BY_TIME.value:
             self.create_ramp_by_time_widgets()
         elif step_type_name == ph.StepTypeName.RAMP_BY_RATE.value:
@@ -395,26 +403,40 @@ class ProgramEditor:
 
         self.step_detail_frames.append(end_frame)
 
-        self.end_action_comboboxes = [] #clear the list before making new comboboxes
-
+        self.end_action_vars = [] #clear the list before making new comboboxes
+        
         frame, combobox = self.create_combobox_widget(end_frame, [step_type.value for step_type in ph.EndActions], 'End Action:')
         frame.grid(row=0, column=0, padx=6, pady=5, sticky='ew')
         combobox.config(width=12)
         combobox.grid(padx=0)
-        self.end_action_comboboxes.append(combobox)
+        self.end_action_vars.append(combobox)
 
-        frame, combobox = self.create_combobox_widget(end_frame, range(1, 6), 'Ch 1 Idle Setpoint')
+        frame, var = self.create_entry_widget(end_frame, 'Ch 1 Idle Temp Setpoint', 25)
         frame.grid(row=1, column=0, padx=0, pady=5, sticky='ew')
-        self.end_action_comboboxes.append(combobox)
+        self.end_action_vars.append(var)
         
-        frame, combobox = self.create_combobox_widget(end_frame, range(6, 11), 'Ch 2 Idle Setpoint')
+        frame, var = self.create_entry_widget(end_frame, 'Ch 2 Idle Temp Setpoint', 25)
         frame.grid(row=2, column=0, padx=0, pady=5, sticky='ew')
-        self.end_action_comboboxes.append(combobox)
+        self.end_action_vars.append(var)
 
     def get_duration_timedelta(self) -> td:
-        return td(hours=int(self.duration_vars[0].get()), 
-                minutes=int(self.duration_vars[1].get()), 
-                seconds=int(self.duration_vars[2].get()))
+        hours = int(self.duration_vars[0].get())
+        minutes = int(self.duration_vars[1].get())
+        seconds = int(self.duration_vars[2].get())
+
+        if seconds >= 60:
+            minutes += seconds // 60
+            seconds = seconds % 60
+
+        if minutes >= 60:
+            hours += minutes // 60
+            hours = hours if hours <= 99 else 99 #limit hours to 99
+
+            minutes = minutes % 60
+
+        return td(hours=hours, 
+                minutes=minutes, 
+                seconds=seconds)
 
     def get_step_from_current_selection(self) -> ph.Step:
         step_type_name = self.step_type_dropdown.get()
@@ -475,9 +497,9 @@ class ProgramEditor:
             step = ph.Step(
                 type_name=ph.StepTypeName.END, 
                 details = ph.End(
-                    end_action=self.end_action_comboboxes[0].get(),
-                    ch1_idle_setpoint=self.end_action_comboboxes[1].get(),
-                    ch2_idle_setpoint=self.end_action_comboboxes[2].get()
+                    end_action=self.end_action_vars[0].get(),
+                    ch1_idle_setpoint=self.end_action_vars[1].get(),
+                    ch2_idle_setpoint=self.end_action_vars[2].get()
                 )
             )
 
@@ -486,9 +508,8 @@ class ProgramEditor:
     def add_step(self):
         step = self.get_step_from_current_selection()
 
-        selected_item = self.tree.selection()
-        if selected_item:
-            tree_item_index = self.tree.index(selected_item)
+        if self.current_selected_item:
+            tree_item_index = self.tree.index(self.current_selected_item)
             self.step_list.insert(tree_item_index, step)
 
             tree_index = self.tree.index(self.tree.get_children()[tree_item_index])
@@ -501,39 +522,50 @@ class ProgramEditor:
         new_values = (f"{tree_index}", f"{self.step_list[tree_index].type_name}")
         self.tree.insert("", tree_index, values=new_values)
 
+        self.current_selected_item = self.tree.get_children()[tree_index]
+        self.tree.selection_set(self.tree.get_children()[tree_index])
+
         self.reindex_tree_view()
 
     def update_step(self):
-        selected_item = self.tree.selection()
-        if selected_item:
-            self.step_list[self.tree.index(selected_item)] = self.get_step_from_current_selection()
+        self.step_list[self.tree.index(self.current_selected_item)] = self.get_step_from_current_selection()
 
-            item_id = selected_item[0]
-            new_values = (f"{self.tree.index(selected_item)}", f"{self.step_list[self.tree.index(selected_item)].type_name}")
-            self.tree.item(item_id, values=new_values)
+        item_id = self.current_selected_item
+        new_values = (f"{self.tree.index(self.current_selected_item)}", f"{self.step_list[self.tree.index(self.current_selected_item)].type_name}")
+        self.tree.item(item_id, values=new_values)
 
-            self.reindex_tree_view()
+        self.reindex_tree_view()
         
     def remove_step(self):
-        selected_item = self.tree.selection()
-        if selected_item:
-            self.step_list.remove(self.tree.index(selected_item))
+        self.current_selected_item = self.tree.selection()
+        if self.current_selected_item:
+            current_item_index = self.tree.index(self.current_selected_item)
 
-            for item in selected_item:
-                self.tree.delete(item)
+            self.step_list.pop(current_item_index)
+            self.tree.delete(self.current_selected_item)
+
+            self.step_deleted = True
 
             self.reindex_tree_view()
 
-    def on_treeview_select(self, event):
-        selected_item = self.tree.selection()
+            self.current_selected_item = self.tree.get_children()[current_item_index] #set to item newly at this index
+            self.step_type_dropdown.set(self.step_list[current_item_index].type_name) #so that update step has right type
+            self.tree.selection_set(self.current_selected_item)
 
-        if selected_item: # load into step details frame
-            step = self.step_list[self.tree.index(selected_item)]
+    def on_treeview_select(self, event):
+        if self.step_deleted: 
+            self.step_deleted = False
+        else: #dont update step if it was just deleted
+            self.update_step()
+            
+        self.current_selected_item = self.tree.selection()
+
+        if self.current_selected_item: # load into step details frame
+            step = self.step_list[self.tree.index(self.current_selected_item)]
+            self.step_type_dropdown.set(step.type_name)
+            self.create_detail_widgets(step.type_name)
 
             if step.type_name == ph.StepTypeName.RAMP_BY_TIME:
-                self.step_type_dropdown.set(step.type_name)
-                self.create_detail_widgets(step.type_name)
-
                 for idx, var in enumerate(self.event_output_vars):
                     var.set(step.details.event_output_states[idx])
 
@@ -550,9 +582,6 @@ class ProgramEditor:
                 self.guaranteed_soak_vars[1].set(step.details.guaranteed_soak_2)
 
             elif step.type_name == ph.StepTypeName.RAMP_BY_RATE:
-                self.step_type_dropdown.set(step.type_name)
-                self.create_detail_widgets(step.type_name)
-
                 for idx, var in enumerate(self.event_output_vars):
                     var.set(step.details.event_output_states[idx])
                 
@@ -562,33 +591,28 @@ class ProgramEditor:
                 self.guaranteed_soak_vars[0].set(step.details.guaranteed_soak_1)
 
             elif step.type_name == ph.StepTypeName.SOAK:
-                self.step_type_dropdown.set(step.type_name)
-                self.create_detail_widgets(step.type_name)
-
                 for idx, var in enumerate(self.event_output_vars):
                     var.set(step.details.event_output_states[idx])
 
                 hours, minutes, seconds = ph.timedelta_to_hours_minutes_seconds(step.details.duration)
+                self.duration_vars[0].set(hours)
+                self.duration_vars[1].set(minutes)
+                self.duration_vars[2].set(seconds)
+
                 self.ch_pid_selection_comboboxes[0].current(step.details.ch1_pid_selection)
                 self.ch_pid_selection_comboboxes[1].current(step.details.ch2_pid_selection)
                 self.guaranteed_soak_vars[0].set(step.details.guaranteed_soak_1)
                 self.guaranteed_soak_vars[1].set(step.details.guaranteed_soak_2)
 
             elif step.type_name == ph.StepTypeName.JUMP:
-                self.step_type_dropdown.set(step.type_name)
-                self.create_detail_widgets(step.type_name)
-
-                self.jump_vars[0] = step.details.jump_to_profile
-                self.jump_vars[1] = step.details.jump_to_step
-                self.jump_vars[2] = step.details.number_of_repeats
+                self.jump_vars[0].set(step.details.jump_to_profile)
+                self.jump_vars[1].set(step.details.jump_to_step)
+                self.jump_vars[2].set(step.details.number_of_repeats)
 
             elif step.type_name == ph.StepTypeName.END:
-                self.step_type_dropdown.set(step.type_name)
-                self.create_detail_widgets(step.type_name)
-            
-                self.end_action_comboboxes[0].set(step.details.end_action)
-                self.end_action_comboboxes[1].set(step.details.ch1_idle_setpoint)
-                self.end_action_comboboxes[2].set(step.details.ch2_idle_setpoint)
+                self.end_action_vars[0].set(step.details.end_action)
+                self.end_action_vars[1].set(step.details.ch1_idle_setpoint)
+                self.end_action_vars[2].set(step.details.ch2_idle_setpoint)
 
     def reindex_tree_view(self):
         children = self.tree.get_children()
@@ -612,19 +636,26 @@ class ProgramEditor:
                 type_name=ph.StepTypeName.END,
                 details=ph.End(
                     end_action=[step_type.value for step_type in ph.EndActions][0],
-                    ch1_idle_setpoint=25,
-                    ch2_idle_setpoint=25
+                    ch1_idle_setpoint=0,
+                    ch2_idle_setpoint=0
                 )
             )
         )
 
         self.tree.insert("", "end", values=(f"0", f"{ph.StepTypeName.END}"))
 
+        self.current_selected_item = self.tree.get_children()[0]
+
     def open_file(self):
         file_path = Path(filedialog.askopenfilename(defaultextension=FILE_EXTENSION, filetypes=[("CSV Files", FILE_EXTENSION)], title="Open file"))
         if file_path:
             self.step_list = ph.read_program_from_file(file_path).steps
             self.build_tree_view()
+
+            #set up first step in step details
+            self.step_type_dropdown.set(self.step_list[0].type_name)
+            self.current_selected_item = self.tree.get_children()[0]
+            self.tree.selection_set(self.current_selected_item)
 
     def save_file(self):
         file_path = Path(filedialog.asksaveasfilename(defaultextension=FILE_EXTENSION, filetypes=[("CSV Files", FILE_EXTENSION)], title="Save file"))

@@ -173,7 +173,7 @@ class WatlowF4:
                     self.instrument.write_register(idx+WatlowF4Registers.PROFILE_EVENT_OUTPUT_1, enabled_state)
                 self.logger.debug(f"Set Event Output {idx+1} to {enabled_state}")
 
-                soak_hours, soak_minutes, soak_seconds = ph.get_hms(step.duration)
+                soak_hours, soak_minutes, soak_seconds = ph.timedelta_to_hours_minutes_seconds(step.duration)
                 self.instrument.write_register(WatlowF4Registers.PROFILE_SOAK_STEP_TIME_HOURS, soak_hours)
                 self.logger.debug(f"Set soak time hours to {soak_hours}")
 

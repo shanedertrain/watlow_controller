@@ -1,17 +1,5 @@
-#TODO: WORK WITH STEPS BASED ON STEP HANDLER
-	All enums turn into 0 indexed behind the scenes
-
-#when the tree view is rebuild after file open, the indexes are not proper
-
-#wait for event output is not being loaded from file into the program properly
-
-#remove update button, make update happen whenever the the tree box selection changes
-	#before changes to the step details are made 
-
 #TODO: ADD NEW HELP DIALOG
 
 #TODO: ABILITY TO LOAD TO WATLOW DIRECTLY FROM PROGRAM EDITOR
     WILL NEED TO SPECIFY PROGRAM NUMBER TO LOAD
 	PROGRAMMING WATLOW USE THE CURRENT STEP LIST
-
-#AUTOSTART?
