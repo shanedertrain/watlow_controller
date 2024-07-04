@@ -27,8 +27,8 @@ class ProgramEditor:
     duration_vars:list[tk.IntVar] = []
     jump_vars:list[tk.IntVar] = []
     end_action_vars:list[tk.IntVar] = []
-    current_selected_item = None
-    step_deleted:bool = False
+    current_selected_item = None #current selected item in tree
+    do_not_update:bool = False #prevents loading step after deletions and when first file open
 
     def __init__(self, root):
         self.root = root
@@ -344,7 +344,6 @@ class ProgramEditor:
     def create_soak_widgets(self):
         self.create_event_output_widgets(self.details_frame)
         self.create_duration_widgets(self.details_frame)
-        self.create_channel_temp_setpoint_widgets(self.details_frame, 2)
         self.create_channel_pid_selection_widgets(self.details_frame, 2)
         self.create_guaranteed_soak_widgets(self.details_frame, 2)
 
@@ -545,7 +544,7 @@ class ProgramEditor:
             self.step_list.pop(current_item_index)
             self.tree.delete(self.current_selected_item)
 
-            self.step_deleted = True
+            self.do_not_update = True
 
             self.reindex_tree_view()
 
@@ -554,8 +553,8 @@ class ProgramEditor:
             self.tree.selection_set(self.current_selected_item)
 
     def on_treeview_select(self, event):
-        if self.step_deleted: 
-            self.step_deleted = False
+        if self.do_not_update: 
+            self.do_not_update = False
         else: #dont update step if it was just deleted
             self.update_step()
             
@@ -626,6 +625,8 @@ class ProgramEditor:
         
         for idx, step in enumerate(self.step_list):
             self.tree.insert("", "end", text=step.type_name, values=(idx, step.type_name))
+
+        self.do_not_update = True #we cleared everything so dont update not existing steps
 
     def new_file(self):
         self.tree.delete(*self.tree.get_children())
