@@ -523,7 +523,7 @@ class ProgramEditor:
         self.tree.insert("", tree_index, values=new_values)
 
         self.current_selected_item = self.tree.get_children()[tree_index]
-        self.tree.selection_set(self.tree.get_children()[tree_index])
+        self.tree.selection_set(self.tree.get_children()[tree_index+1])
 
         self.reindex_tree_view()
 

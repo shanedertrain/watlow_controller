@@ -1,13 +1,8 @@
-#TODO: ADD NEW HELP DIALOG
-
-#remove temp setpoints from soak
-
 #add back draggable steps
 
-Steps should be populated below the existing steps
-	except for end step, always above / dont allow to add a step with end selected
-
 #make step buttons always stay at bottom
+
+#TODO: ADD NEW HELP DIALOG
 
 #TODO: ABILITY TO LOAD TO WATLOW DIRECTLY FROM PROGRAM EDITOR
     WILL NEED TO SPECIFY PROGRAM NUMBER TO LOAD
