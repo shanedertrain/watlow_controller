@@ -1,3 +1,6 @@
 watlow_programs/*
 *.pyc
 settings.json
+build/*
+*r.spec
+dist/*
