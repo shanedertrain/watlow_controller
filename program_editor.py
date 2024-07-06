@@ -5,6 +5,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import winsound
 import serial.tools.list_ports
+import webbrowser
 
 import program_handler as ph
 import watlow_f4
@@ -126,11 +127,10 @@ class ProgramEditor:
         self.file_menu.add_command(label="Open", command=self.open_file)
         self.file_menu.add_command(label="Save", command=self.save_file)
 
-        self.menu.add_separator()  # Add a separator before Help
-        self.menu.add_command(label="Help", command=self.show_help)  # Direct command to show help
-        self.menu.add_command(label="About", command=self.show_about)  # Direct command to show help
-        self.menu.add_separator()  # Add a separator before Help
+        self.menu.add_separator() 
         self.menu.add_command(label="Load Program", command=self.open_load_to_watlow_dialog)
+        self.menu.add_separator() 
+        self.menu.add_command(label="Help", command=self.show_help)  # Direct command to show help
 
         # Bind treeview events
         self.tree.bind('<<TreeviewSelect>>', self.on_treeview_select)
@@ -678,8 +678,58 @@ class ProgramEditor:
             self.root.title(f"{BASE_TITLE} | {self.program.name}")
 
     def show_help(self):
-        #needs update after completion
-        messagebox.showinfo("Help", "Help information goes here.")
+        help_text = (
+            "Watlow Controller Program Editor Help:\n\n"
+            "1. Adding Steps:\n"
+            "   - Select the step type from the dropdown menu on the right.\n"
+            "   - Fill in the details for the selected step type.\n"
+            "   - Click the 'Add Step' button to insert the step into the program.\n\n"
+            "2. Updating Steps:\n"
+            "   - Select a step from the TreeView.\n"
+            "   - Modify the details in the step details section on the right.\n"
+            "   - Click the 'Update Step' button to save changes.\n\n"
+            "3. Removing Steps:\n"
+            "   - Select a step from the TreeView.\n"
+            "   - Click the 'Remove Step' button to delete the step.\n\n"
+            "4. Saving and Loading Programs:\n"
+            "   - Use the 'File' menu to create a new program, open an existing program, or save the current program.\n"
+            "   - Programs are saved as CSV files.\n\n"
+            "5. Loading to Watlow:\n"
+            "   - Use the 'Load to Watlow' option in the 'File' menu to upload the program to the Watlow controller.\n"
+            "   - Select the COM port, profile number, and slave address in the dialog that appears.\n\n"
+            "6. Additional Information:\n"
+            "   - Visit the GitHub repository for source code and further documentation:\n\n"
+            "       https://github.com/shanedertrain/watlow_controller\n\n"
+            "       License: GNU GENERAL PUBLIC LICENSE Version 3"
+        )
+
+        def open_github():
+            webbrowser.open("https://github.com/shanedertrain/watlow_controller")
+
+        # Create a custom Toplevel window
+        help_window = tk.Toplevel(self.root)
+        help_window.title("Help")
+        help_window.geometry("900x400")  # Adjust width and height as needed
+
+        # Add a Text widget to display the help text
+        text_widget = tk.Text(help_window, wrap="word", height=20, width=100)
+        text_widget.insert(tk.END, help_text)
+        text_widget.config(state=tk.DISABLED)  # Make the text widget read-only
+        text_widget.pack(pady=10, padx=10, expand=True, fill=tk.BOTH)
+
+        # Add a clickable link to GitHub
+        link_label = tk.Label(help_window, text="Visit GitHub Repository", fg="blue", cursor="hand2")
+        link_label.pack(pady=5)
+        link_label.bind("<Button-1>", lambda e: open_github())
+
+        # Add a close button
+        close_button = ttk.Button(help_window, text="Close", command=help_window.destroy)
+        close_button.pack(pady=10)
+
+        # Make the window modal
+        help_window.transient(self.root)
+        help_window.grab_set()
+        self.root.wait_window(help_window)
 
     def show_about(self):
         messagebox.showinfo("Help", 
