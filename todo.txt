@@ -1,17 +1,2 @@
-#make step buttons always stay at bottom
-
 #TODO: ADD NEW HELP DIALOG
 
-#TODO: ABILITY TO LOAD TO WATLOW DIRECTLY FROM PROGRAM EDITOR
-    WILL NEED TO SPECIFY PROGRAM NUMBER TO LOAD
-	PROGRAMMING WATLOW USE THE CURRENT STEP LIST
-
-	#button on top, separated from others
-	#opens a modal dialog that asks for:
-		profile NUMBER
-		com port combobox selected from listed serial ports
-	#hitting 'Load Program' starts the loading.
-	#button is disabled
-	#progress bar updated based on steps loaded
-	#when done make that generic windows sound with some success text
-	#button is enabled again with 'Done' text

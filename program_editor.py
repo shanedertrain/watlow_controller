@@ -3,8 +3,11 @@ from datetime import timedelta as td
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
+import winsound
+import serial.tools.list_ports
 
 import program_handler as ph
+import watlow_f4
 
 # Constants
 FILE_DIRECTORY = os.path.join(os.getcwd(), 'watlow_programs')
@@ -13,11 +16,13 @@ HEADER = ['step_type']
 DEFAULT_COLOR = 'white'
 ERROR_COLOR = 'red'
 
+BASE_TITLE = "Watlow F4 Program Editor"
+
 if not os.path.exists(FILE_DIRECTORY):
     os.makedirs(FILE_DIRECTORY)
 
 class ProgramEditor:
-    step_list:list[ph.Step] = []
+    program = ph.Program(name="New Program", steps=[])
     step_detail_frames:list[tk.Frame] = []
     event_output_vars:list[tk.BooleanVar] = []
     guaranteed_soak_vars:list[tk.BooleanVar] = []
@@ -32,7 +37,7 @@ class ProgramEditor:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("Watlow F4 Program Editor")
+        self.root.title(BASE_TITLE)
         self.root.geometry("520x600")  # Adjusted size for the combined view
         self.root.resizable(False, False)
 
@@ -124,6 +129,8 @@ class ProgramEditor:
         self.menu.add_separator()  # Add a separator before Help
         self.menu.add_command(label="Help", command=self.show_help)  # Direct command to show help
         self.menu.add_command(label="About", command=self.show_about)  # Direct command to show help
+        self.menu.add_separator()  # Add a separator before Help
+        self.menu.add_command(label="Load Program", command=self.open_load_to_watlow_dialog)
 
         # Bind treeview events
         self.tree.bind('<<TreeviewSelect>>', self.on_treeview_select)
@@ -502,16 +509,16 @@ class ProgramEditor:
 
         if self.current_selected_item:
             tree_item_index = self.tree.index(self.current_selected_item)
-            self.step_list.insert(tree_item_index, step)
+            self.program.steps.insert(tree_item_index, step)
 
             tree_index = self.tree.index(self.tree.get_children()[tree_item_index])
 
         else: #if nothing is selected, add before the end step
-            self.step_list.insert(-1, step)
+            self.program.steps.insert(-1, step)
     
             tree_index = self.tree.index(self.tree.get_children()[-1])
         
-        new_values = (f"{tree_index}", f"{self.step_list[tree_index].type_name}")
+        new_values = (f"{tree_index}", f"{self.program.steps[tree_index].type_name}")
         self.tree.insert("", tree_index, values=new_values)
 
         self.current_selected_item = self.tree.get_children()[tree_index]
@@ -525,10 +532,10 @@ class ProgramEditor:
             if self.step_type_dropdown.get() != ph.StepTypeName.END.value:
                 return
             
-        self.step_list[self.tree.index(self.current_selected_item)] = self.get_step_from_current_selection()
+        self.program.steps[self.tree.index(self.current_selected_item)] = self.get_step_from_current_selection()
 
         item_id = self.current_selected_item
-        new_values = (f"{self.tree.index(self.current_selected_item)}", f"{self.step_list[self.tree.index(self.current_selected_item)].type_name}")
+        new_values = (f"{self.tree.index(self.current_selected_item)}", f"{self.program.steps[self.tree.index(self.current_selected_item)].type_name}")
         self.tree.item(item_id, values=new_values)
 
         self.reindex_tree_view()
@@ -538,7 +545,7 @@ class ProgramEditor:
         if self.current_selected_item:
             current_item_index = self.tree.index(self.current_selected_item)
 
-            self.step_list.pop(current_item_index)
+            self.program.steps.pop(current_item_index)
             self.tree.delete(self.current_selected_item)
 
             self.do_not_update = True
@@ -546,7 +553,7 @@ class ProgramEditor:
             self.reindex_tree_view()
 
             self.current_selected_item = self.tree.get_children()[current_item_index] #set to item newly at this index
-            self.step_type_dropdown.set(self.step_list[current_item_index].type_name) #so that update step has right type
+            self.step_type_dropdown.set(self.program.steps[current_item_index].type_name) #so that update step has right type
             self.tree.selection_set(self.current_selected_item)
 
     def on_treeview_select(self, event):
@@ -558,7 +565,7 @@ class ProgramEditor:
         self.current_selected_item = self.tree.selection()
 
         if self.current_selected_item: # load into step details frame
-            step = self.step_list[self.tree.index(self.current_selected_item)]
+            step = self.program.steps[self.tree.index(self.current_selected_item)]
             self.step_type_dropdown.set(step.type_name)
             self.create_detail_widgets(step.type_name)
 
@@ -620,7 +627,7 @@ class ProgramEditor:
     def build_tree_view(self):
         self.tree.delete(*self.tree.get_children())
         
-        for idx, step in enumerate(self.step_list):
+        for idx, step in enumerate(self.program.steps):
             self.tree.insert("", "end", text=step.type_name, values=(idx, step.type_name))
 
         self.do_not_update = True #we cleared everything so dont update not existing steps
@@ -628,9 +635,10 @@ class ProgramEditor:
     def new_file(self):
         self.tree.delete(*self.tree.get_children())
 
-        self.step_list = []
+        self.program.name = "New Program"
+        self.program.steps = []
 
-        self.step_list.append(
+        self.program.steps.append(
             ph.Step(
                 type_name=ph.StepTypeName.END,
                 details=ph.End(
@@ -645,23 +653,29 @@ class ProgramEditor:
 
         self.current_selected_item = self.tree.get_children()
 
+        self.root.title(f"{BASE_TITLE} | {self.program.name}")
+
     def open_file(self):
-        file_path = Path(filedialog.askopenfilename(defaultextension=FILE_EXTENSION, filetypes=[("CSV Files", FILE_EXTENSION)], title="Open file"))
-        if file_path:
-            self.step_list = ph.read_program_from_file(file_path).steps
+        filepath = Path(filedialog.askopenfilename(defaultextension=FILE_EXTENSION, filetypes=[("CSV Files", FILE_EXTENSION)], title="Open file"))
+        if filepath:
+            self.program = ph.read_program_from_file(filepath)
             self.build_tree_view()
 
             #set up first step in step details
-            self.step_type_dropdown.set(self.step_list[0].type_name)
+            self.step_type_dropdown.set(self.program.steps[0].type_name)
             self.current_selected_item = self.tree.get_children()[0]
             self.tree.selection_set(self.current_selected_item)
 
+            self.root.title(f"{BASE_TITLE} | {self.program.name}")
+
     def save_file(self):
-        file_path = Path(filedialog.asksaveasfilename(defaultextension=FILE_EXTENSION, filetypes=[("CSV Files", FILE_EXTENSION)], title="Save file"))
-        if file_path:
-            program = ph.Program(name=file_path.stem, steps=self.step_list)
-            ph.write_program_to_file(program, file_path)
-            messagebox.showinfo("File save successful", f"File successfully saved to: {file_path}")
+        filepath = Path(filedialog.asksaveasfilename(defaultextension=FILE_EXTENSION, filetypes=[("CSV Files", FILE_EXTENSION)], title="Save file"))
+        if filepath:
+            self.program.name = filepath.stem
+            ph.write_program_to_file(self.program, filepath)
+            messagebox.showinfo("File save successful", f"File successfully saved to: {filepath}")
+
+            self.root.title(f"{BASE_TITLE} | {self.program.name}")
 
     def show_help(self):
         #needs update after completion
@@ -673,6 +687,70 @@ class ProgramEditor:
     https://github.com/shanedertrain/watlow_controller
     License: GNU GENERAL PUBLIC LICENSE Version 3"""
         )
+
+    def open_load_to_watlow_dialog(self):
+        modal = tk.Toplevel()
+        modal.title("Load to Watlow")
+        modal.geometry("300x250")
+        modal.transient(self.root)  # Make it modal
+        modal.grab_set()
+
+        def list_com_ports():
+            ports = serial.tools.list_ports.comports()
+            return [port.device for port in ports]
+
+        # COM port combobox
+        com_label = tk.Label(modal, text="COM Port:")
+        com_label.pack(pady=5)
+        com_ports = list_com_ports()
+        com_combobox = ttk.Combobox(modal, values=com_ports, state="readonly")
+        com_combobox.pack(pady=5)
+        if com_ports:
+            com_combobox.current(0)  # Set to first element
+
+        # Profile number combobox
+        profile_label = tk.Label(modal, text="Profile Number:")
+        profile_label.pack(pady=5)
+        profile_combobox = ttk.Combobox(modal, values=list(range(1, 41)), state="readonly")
+        profile_combobox.pack(pady=5)
+        profile_combobox.current(0)  # Set to first element
+
+        # Slave address combobox
+        slave_address_label = tk.Label(modal, text="Slave Address:")
+        slave_address_label.pack(pady=5)
+        slave_address_combobox = ttk.Combobox(modal, values=list(range(1, 256)), state="readonly")
+        slave_address_combobox.pack(pady=5)
+        slave_address_combobox.current(0)  # Set to first element
+
+        # Load Program button
+        load_button = tk.Button(modal, text="Load Program")
+        load_button.pack(pady=20)
+
+        def load_program():
+            load_button.config(state=tk.DISABLED)
+            load_button.config(text="Loading...")
+            modal.update_idletasks()
+
+            try:
+                watlow = watlow_f4.WatlowF4(slave_address=int(slave_address_combobox.get()), com_port=com_combobox.get())
+                watlow.configure_profile(self.program, int(profile_combobox.get()))
+                on_load_done(True)
+            except Exception as e:
+                on_load_done(False, e)
+
+        def on_load_done(success, failure_message=None):
+            if success:
+                load_button.config(text="Success! Click to close")
+                load_button.config(command=modal.destroy)
+            else:
+                load_button.config(text="Load Program")
+                messagebox.showerror("Failure", f"The program failed to load: {failure_message}")
+            
+            winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+            load_button.config(state=tk.NORMAL)
+
+        load_button.config(command=load_program)
+        
 if __name__ == "__main__":
     root = tk.Tk()
     app = ProgramEditor(root)
