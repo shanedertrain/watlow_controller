@@ -6,41 +6,55 @@ from watlow_f4_registers import WatlowF4Registers, profile_name_enum_dict
 import program_handler as ph
 
 class WatlowF4:
-    def __init__(self, slave_address: int):
+    def __init__(self, slave_address: int, com_port: str=None):
         self.slave_address = slave_address
+        self.com_port = com_port
         self.instrument = None
         self.logger = self.setup_logger()
-        self.find_and_connect()
+
+        self.find_and_connect(self.com_port)
 
     def setup_logger(self):
         logger = logging.getLogger(self.__class__.__name__)
         logger.setLevel(logging.DEBUG)
-        handler = logging.FileHandler(f'{self.__class__.__name__}.log')
+        handler = logging.FileHandler(f'{self.__class__.__name__}.log', mode='w')
         handler.setLevel(logging.DEBUG)
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         handler.setFormatter(formatter)
         logger.addHandler(handler)
         return logger
 
-    def find_and_connect(self):
-        ports = list(serial.tools.list_ports.comports())
-        for port in ports:
-            try:
-                self.logger.debug(f"Trying port: {port.device}")
-                self.instrument = minimalmodbus.Instrument(port.device, self.slave_address)
-                self.instrument.serial.baudrate = 9600
-                self.instrument.serial.bytesize = 8
-                self.instrument.serial.parity = minimalmodbus.serial.PARITY_NONE
-                self.instrument.serial.stopbits = 1
-                self.instrument.serial.timeout = 1
+    def find_and_connect(self, com_port:str=None):
+        if com_port:
+            if self.try_port(com_port):
+                return True
+            raise Exception(f"Watlow F4 not found on {com_port}")
+        else:
+            ports = list(serial.tools.list_ports.comports())
 
-                # Try to read a register to confirm the connection
-                self.read_register(100)
-                self.logger.info(f"Found Watlow F4 on port: {port.device}")
-                return
-            except Exception as e:
-                self.logger.error(f"Failed to connect on port {port.device}: {e}")
-        raise Exception("Watlow F4 not found on any available COM port")
+            for port in ports:
+                if self.try_port(port.device):
+                    return True
+                
+            raise Exception("Watlow F4 not found on any available COM port")
+
+    def try_port(self, com_port: str):
+        try:
+            self.logger.debug(f"Trying port: {com_port}")
+            self.instrument = minimalmodbus.Instrument(com_port, self.slave_address)
+            self.instrument.serial.baudrate = 9600
+            self.instrument.serial.bytesize = 8
+            self.instrument.serial.parity = minimalmodbus.serial.PARITY_NONE
+            self.instrument.serial.stopbits = 1
+            self.instrument.serial.timeout = 1
+
+            # Try to read a register to confirm the connection
+            self.read_register(100)
+            self.logger.info(f"Found Watlow F4 on port: {com_port}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error connecting to port {com_port}: {e}")
+            return False
 
     def read_register(self, register: WatlowF4Registers):
         try:
@@ -239,14 +253,6 @@ class WatlowF4:
         self.instrument.write_register(WatlowF4Registers.SAVE_CHANGES_TO_EEPROM, 0)
 
         self.logger.debug(f"Successfully set profile name to {profile_name}")
-    
-    def run_profile(self, profile_number: int):
-        try:
-            self.instrument.write_register(WatlowF4Registers.PROFILE_NUMBER, profile_number)
-            self.logger.info(f"Set selected profile to {profile_number}")
-        except Exception as e:
-            self.logger.error(f"Error selecting profile {profile_number}: {e}")
-            raise
 
     def delete_profile(self, profile_number: int):
         self.select_profile(profile_number)
@@ -271,10 +277,10 @@ class WatlowF4:
             self.logger.error(f"Error starting profile: {e}")
             raise
 
-    def configure_profile(self, program: ph.Program,  profile_num: int, profile_name: str="Auto"):
+    def configure_profile(self, program: ph.Program,  profile_num: int):
         self.select_profile(profile_num)
         
-        self.set_profile_name(profile_name)
+        self.set_profile_name(program.name)
 
         for i, step in enumerate(program):
             self.insert_step(i, step)
