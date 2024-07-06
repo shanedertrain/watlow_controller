@@ -42,11 +42,7 @@ class ProgramEditor:
     def create_app_widgets(self):
         # Create a frame for the Treeview
         tree_frame = tk.Frame(self.root)
-        tree_frame.grid(row=0, column=0, sticky='nsew', padx=5, pady=5)
-
-        # Configure tree_frame to expand
-        tree_frame.grid_rowconfigure(0, weight=1)
-        tree_frame.grid_columnconfigure(0, weight=1)
+        tree_frame.pack(side='left', fill='both', expand=True)
 
         # Setup Treeview
         self.tree = ttk.Treeview(tree_frame, columns=('step', 'step_type'), show='headings')
@@ -58,25 +54,25 @@ class ProgramEditor:
         self.tree.column('step_type', width=12 * 10, anchor='center')  
 
         # Expand Treeview in the available space
-        self.tree.grid(row=0, column=0, sticky='nsew')
+        self.tree.pack(side='left', fill='both', expand=True)
 
         # Setup Vertical Scrollbar
         self.scrollbar = tk.Scrollbar(tree_frame, orient='vertical', command=self.tree.yview, width=20)
-        self.scrollbar.grid(row=0, column=1, sticky='ns')
+        self.scrollbar.pack(side='right', fill='y', expand=False)
         self.tree.configure(yscrollcommand=self.scrollbar.set)
 
         # Create a frame for the detail section
         detail_frame = tk.Frame(self.root)
-        detail_frame.grid(row=0, column=2, sticky='nsew', padx=5, pady=5)
+        detail_frame.pack(side='right', fill='both', expand=False, padx=0, pady=5)
 
         # Configure detail_frame to expand
         detail_frame.grid_rowconfigure(0, weight=0)
         detail_frame.grid_rowconfigure(1, weight=0)
         detail_frame.grid_rowconfigure(2, weight=0)
         detail_frame.grid_rowconfigure(3, weight=1)
-        detail_frame.grid_rowconfigure(4, weight=1)
+        detail_frame.grid_rowconfigure(4, weight=0)
         detail_frame.grid_columnconfigure(0, weight=1)
-        detail_frame.grid_columnconfigure(1, weight=0)
+        detail_frame.grid_columnconfigure(1, weight=1)
 
         self.detail_label = tk.Label(detail_frame, text="Step Details")
         self.detail_label.grid(row=0, column=0, pady=0, columnspan=2)
@@ -96,7 +92,7 @@ class ProgramEditor:
 
         # Setup detail section
         self.details_frame = tk.Frame(detail_frame)
-        self.details_frame.grid(row=2, column=0, columnspan=2, sticky='nsew', padx=5, pady=5)
+        self.details_frame.grid(row=2, column=0, columnspan=2, sticky='nsew', padx=0, pady=0)
 
         # Configure details_frame to expand
         self.details_frame.grid_rowconfigure(0, weight=0)
@@ -107,13 +103,13 @@ class ProgramEditor:
 
         #bottom buttons
         self.add_button = tk.Button(detail_frame, text="Add Step", command=self.add_step)
-        self.add_button.grid(row=3, column=0, pady=5, sticky='ews')
+        self.add_button.grid(row=3, column=0, pady=0, sticky='ews')
 
         self.update_button = tk.Button(detail_frame, text="Update Step", command=self.update_step)
-        self.update_button.grid(row=3, column=1, pady=5, sticky='ews')
+        self.update_button.grid(row=3, column=1, pady=0, sticky='ews')
 
         self.remove_button = tk.Button(detail_frame, text="Remove Step", command=self.remove_step)
-        self.remove_button.grid(row=4, column=0, columnspan=2, pady=5, sticky='ews')
+        self.remove_button.grid(row=4, column=0, columnspan=2, pady=0, sticky='ews')
 
         # Setup Menu
         self.menu = tk.Menu(self.root)
@@ -129,12 +125,6 @@ class ProgramEditor:
         self.menu.add_command(label="Help", command=self.show_help)  # Direct command to show help
         self.menu.add_command(label="About", command=self.show_about)  # Direct command to show help
 
-        # Configure root grid
-        self.root.grid_rowconfigure(0, weight=1)
-        self.root.grid_columnconfigure(0, weight=1)
-        self.root.grid_columnconfigure(1, weight=0)
-        self.root.grid_columnconfigure(2, weight=1)
-
         # Bind treeview events
         self.tree.bind('<<TreeviewSelect>>', self.on_treeview_select)
         self.step_type_dropdown.event_generate("<<ComboboxSelected>>")
@@ -148,15 +138,15 @@ class ProgramEditor:
         entry = tk.Entry(frame, textvariable=var, width=5)
 
         if horizontal:
-            label.grid(row=0, column=0, padx=5, pady=5, sticky='w')
+            label.grid(row=0, column=0, padx=10, pady=5, sticky='e')
             entry.grid(row=0, column=1, padx=5, pady=5, sticky='e')
             frame.grid_columnconfigure(0, weight=1)
-            frame.grid_columnconfigure(1, weight=1)
+            frame.grid_columnconfigure(1, weight=0)
         else:
-            label.grid(row=0, column=0, padx=5, pady=5, sticky='w')
-            entry.grid(row=1, column=0, padx=5, pady=5, sticky='e')
-            frame.grid_rowconfigure(0, weight=1)
-            frame.grid_rowconfigure(1, weight=1)
+            label.grid(row=0, column=0, padx=0, pady=5, sticky='w')
+            entry.grid(row=1, column=0, padx=0, pady=5, sticky='e')
+            frame.grid_rowconfigure(0, weight=0)
+            frame.grid_rowconfigure(1, weight=0)
 
         if validation_limits:
             limit_lo, limit_hi = validation_limits[0], validation_limits[1]
@@ -166,14 +156,14 @@ class ProgramEditor:
 
     def create_ramp_rate_entry_widget(self, parent_frame:tk.Frame) -> tk.Frame:
         frame = tk.Frame(parent_frame)
-        frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, padx=5, pady=5, sticky='ew')   
+        frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, padx=0, pady=5, sticky='e')   
         frame.grid_columnconfigure(0, weight=1)
         frame.grid_columnconfigure(1, weight=0)
         
         self.step_detail_frames.append(frame)
 
-        frame_entry, self.ramp_rate_var = self.create_entry_widget(frame, "Rate per Minute (C):", 2, validation_limits=(0.1, 3000))
-        frame_entry.grid(row=0, column=0, columnspan=2, pady=5, sticky='we')
+        frame_entry, self.ramp_rate_var = self.create_entry_widget(frame, "Deg C per Minute: ", 2, validation_limits=(0.1, 3000))
+        frame_entry.grid(row=0, column=0, columnspan=2, pady=5, padx=6, sticky='we')
 
         return frame
  
@@ -183,7 +173,7 @@ class ProgramEditor:
         frame.grid_columnconfigure(1, weight=1)
 
         label = tk.Label(frame, text=label_name, anchor='center')
-        label.grid(row=0, column=0, padx=5, pady=5, sticky='w')
+        label.grid(row=0, column=0, padx=5, pady=5, sticky='e')
 
         combobox = ttk.Combobox(frame, values=list(values), state="readonly", width=2)
         combobox.grid(row=0, column=1, padx=5, pady=5, sticky='e')
@@ -193,12 +183,12 @@ class ProgramEditor:
 
     def create_event_output_widgets(self, parent_frame:tk.Frame):
         frame = tk.Frame(parent_frame)
-        frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, pady=5, sticky='ew')
+        frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, padx=15, pady=5, sticky='e')
         
         self.step_detail_frames.append(frame)
 
         for i in range(4):
-            frame.grid_columnconfigure(i, weight=1)
+            frame.grid_columnconfigure(i, weight=0)
 
         tk.Label(frame, text="Wait for Event Output(s)", anchor='center').grid(row=0, columnspan=4)
 
@@ -208,7 +198,7 @@ class ProgramEditor:
             self.event_output_vars.append(var)
 
             check_button = tk.Checkbutton(frame, text=str(i+1), variable=var)
-            check_button.grid(row=i//4+1, column=i%4, padx=5, pady=2)
+            check_button.grid(row=i//4+1, column=i%4, padx=1, pady=2)
 
     def get_event_output_states(self) -> tuple[bool, list[bool]]:
         event_output_states = [checkbox_var.get() for checkbox_var in self.event_output_vars]
@@ -216,9 +206,9 @@ class ProgramEditor:
 
     def create_duration_widgets(self, parent_frame:tk.Frame):
         frame = tk.Frame(parent_frame)
-        frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, pady=2, sticky='ew')
+        frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, padx=20, pady=2, sticky='e')
         for i in range(3):
-            frame.grid_columnconfigure(i, weight=1)
+            frame.grid_columnconfigure(i, weight=0)
         
         self.step_detail_frames.append(frame)
 
@@ -227,15 +217,15 @@ class ProgramEditor:
         tk.Label(frame, text="Duration", anchor='center').grid(row=0, columnspan=3, pady=0)
 
         frame_entry, var = self.create_entry_widget(frame, "Hours", 0, validation_limits=(0, 99), horizontal=False)
-        frame_entry.grid(row=1, column=0, pady=0, sticky='ew')
+        frame_entry.grid(row=1, column=0, pady=0, sticky='ew', padx=0)
         self.duration_vars.append(var)
         
         frame_entry, var = self.create_entry_widget(frame, "Minutes", 0, validation_limits=(0, 99), horizontal=False)
-        frame_entry.grid(row=1, column=1, pady=0, sticky='ew')
+        frame_entry.grid(row=1, column=1, pady=0, sticky='ew', padx=0)
         self.duration_vars.append(var) 
 
         frame_entry, var = self.create_entry_widget(frame, "Seconds", 1, validation_limits=(1, 99), horizontal=False)
-        frame_entry.grid(row=1, column=2, pady=0, sticky='ew')
+        frame_entry.grid(row=1, column=2, pady=0, sticky='ew', padx=0)
         self.duration_vars.append(var)
    
     def create_channel_temp_setpoint_widgets(self, parent_frame:tk.Frame, widget_count:int) -> tk.Frame:
@@ -265,7 +255,7 @@ class ProgramEditor:
         self.ch_pid_selection_comboboxes = []  # Clear the list before creating new comboboxes
         for i in range(1, widget_count+1):
             label = tk.Label(frame, text=f"Ch {i} PID Selection:", anchor='center')
-            label.grid(row=i, column=0, padx=5, pady=5, sticky='w')
+            label.grid(row=i, column=0, padx=5, pady=5, sticky='e')
 
             start_value = 5 * (i - 1) + 1
 
@@ -279,21 +269,21 @@ class ProgramEditor:
     def create_guaranteed_soak_widgets(self, parent_frame:tk.Frame, widget_count:int) -> tk.Frame:
         frame = tk.Frame(parent_frame)
         frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, padx=0, pady=5, sticky='ew')
-        for i in range(2):
-            frame.grid_columnconfigure(i, weight=1)
+        frame.grid_columnconfigure(0, weight=1)
+        frame.grid_columnconfigure(1, weight=0)
 
         self.step_detail_frames.append(frame)
 
         self.guaranteed_soak_vars = []  # Clear the list before creating new checkboxes
         for i in range(1, widget_count+1):
             label = tk.Label(frame, text=f"Guarantee Soak {i}:", anchor='center')
-            label.grid(row=i, column=0, padx=5, pady=0, sticky='ew')
+            label.grid(row=i, column=0, padx=13, pady=0, sticky='e')
 
             var = tk.BooleanVar(value=False)
             self.guaranteed_soak_vars.append(var)
 
             check_button = tk.Checkbutton(frame, variable=var)
-            check_button.grid(row=i, column=1, padx=5, pady=0, sticky='ew')
+            check_button.grid(row=i, column=1, padx=10, pady=0, sticky='we')
 
         return frame
 
@@ -351,9 +341,9 @@ class ProgramEditor:
 
     def create_jump_widgets(self):
         frame = tk.Frame(self.details_frame)
-        frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, padx=0, pady=5, sticky='ew')
+        frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, padx=5, pady=5, sticky='ew')
         frame.grid_columnconfigure(0, weight=1)
-        frame.grid_columnconfigure(1, weight=1)
+        frame.grid_columnconfigure(1, weight=0)
 
         self.step_detail_frames.append(frame)
 
@@ -367,7 +357,7 @@ class ProgramEditor:
         frame.grid(row=1, column=0, columnspan=2, pady=5, sticky='we')
         self.jump_vars.append(var)
 
-        frame, var = self.create_entry_widget(frame, "Number of Repeats:", 1, validation_limits=(1, 999))
+        frame, var = self.create_entry_widget(frame, "Repeats:", 1, validation_limits=(1, 999))
         frame.grid(row=2, column=0, columnspan=2, pady=5, sticky='we')
         self.jump_vars.append(var)
 
@@ -408,16 +398,16 @@ class ProgramEditor:
         self.end_action_vars = [] #clear the list before making new comboboxes
         
         frame, combobox = self.create_combobox_widget(end_frame, [step_type.value for step_type in ph.EndActions], 'End Action:')
-        frame.grid(row=0, column=0, padx=6, pady=5, sticky='ew')
-        combobox.config(width=12)
+        frame.grid(row=0, column=0, padx=5, pady=5, sticky='ew')
+        combobox.config(width=10)
         combobox.grid(padx=0)
         self.end_action_vars.append(combobox)
 
-        frame, var = self.create_entry_widget(end_frame, 'Ch 1 Idle Temp Setpoint', 25)
+        frame, var = self.create_entry_widget(end_frame, 'Ch 1 Idle Setpoint', 25)
         frame.grid(row=1, column=0, padx=0, pady=5, sticky='ew')
         self.end_action_vars.append(var)
         
-        frame, var = self.create_entry_widget(end_frame, 'Ch 2 Idle Temp Setpoint', 25)
+        frame, var = self.create_entry_widget(end_frame, 'Ch 2 Idle Setpoint', 25)
         frame.grid(row=2, column=0, padx=0, pady=5, sticky='ew')
         self.end_action_vars.append(var)
 
@@ -653,7 +643,7 @@ class ProgramEditor:
 
         self.tree.insert("", "end", values=(f"0", f"{ph.StepTypeName.END}"))
 
-        self.current_selected_item = self.tree.get_children()[0]
+        self.current_selected_item = self.tree.get_children()
 
     def open_file(self):
         file_path = Path(filedialog.askopenfilename(defaultextension=FILE_EXTENSION, filetypes=[("CSV Files", FILE_EXTENSION)], title="Open file"))
