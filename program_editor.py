@@ -1,5 +1,6 @@
 import os
 from datetime import timedelta as td
+from datetime import datetime as dt
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -30,9 +31,12 @@ class ProgramEditor:
     channel_temp_setpoint_vars:list[tk.IntVar] = []
     ch_pid_selection_comboboxes:list[ttk.Combobox] = []
     ramp_rate_var:tk.StringVar = None
-    duration_vars:list[tk.IntVar] = []
+    time_vars:list[tk.IntVar] = []
     jump_vars:list[tk.IntVar] = []
     end_action_vars:list[tk.IntVar] = []
+    date_vars :list[tk.IntVar] = []
+    autostart_date_or_day_combobox :ttk.Combobox = None
+    autostart_start_day_combobox :ttk.Combobox = None
     current_selected_item = None #current selected item in tree
     do_not_update:bool = False #prevents loading step after deletions and when first file open
 
@@ -46,36 +50,33 @@ class ProgramEditor:
         self.new_file()
 
     def create_app_widgets(self):
-        # Create a frame for the Treeview
         tree_frame = tk.Frame(self.root)
         tree_frame.pack(side='left', fill='both', expand=True)
 
-        # Setup Treeview
+        # Treeview
         self.tree = ttk.Treeview(tree_frame, columns=('step', 'step_type'), show='headings')
         self.tree.heading('step', text='Step')
         self.tree.heading('step_type', text='Step Type')
 
-        # Set column widths
         self.tree.column('step', width=5 * 10, anchor='center') 
         self.tree.column('step_type', width=12 * 10, anchor='center')  
 
-        # Expand Treeview in the available space
         self.tree.pack(side='left', fill='both', expand=True)
+        self.tree.bind('<<TreeviewSelect>>', self.on_treeview_select)
 
         # Setup Vertical Scrollbar
         self.scrollbar = tk.Scrollbar(tree_frame, orient='vertical', command=self.tree.yview, width=20)
         self.scrollbar.pack(side='right', fill='y', expand=False)
         self.tree.configure(yscrollcommand=self.scrollbar.set)
 
-        # Create a frame for the detail section
+        # Setup detail section
         detail_frame = tk.Frame(self.root)
         detail_frame.pack(side='right', fill='both', expand=False, padx=0, pady=5)
 
-        # Configure detail_frame to expand
         detail_frame.grid_rowconfigure(0, weight=0)
         detail_frame.grid_rowconfigure(1, weight=0)
         detail_frame.grid_rowconfigure(2, weight=0)
-        detail_frame.grid_rowconfigure(3, weight=1)
+        detail_frame.grid_rowconfigure(3, weight=1) #causes the buttons to go to the bottom
         detail_frame.grid_rowconfigure(4, weight=0)
         detail_frame.grid_columnconfigure(0, weight=1)
         detail_frame.grid_columnconfigure(1, weight=1)
@@ -83,7 +84,7 @@ class ProgramEditor:
         self.detail_label = tk.Label(detail_frame, text="Step Details")
         self.detail_label.grid(row=0, column=0, pady=0, columnspan=2)
 
-        #setup step type frame
+        #setup step type dropdown
         step_type_dropdown_frame = tk.Frame(detail_frame)
         step_type_dropdown_frame.grid(row=1, column=0, columnspan=2, pady=5, sticky='ew')
         step_type_dropdown_frame.grid_columnconfigure(0, weight=1)
@@ -91,21 +92,23 @@ class ProgramEditor:
         step_type_label = tk.Label(step_type_dropdown_frame, text="Step Type:", anchor='center')
         step_type_label.grid(row=0, column=0, padx=5, pady=5, sticky='ew')
         
-        self.step_type_dropdown = ttk.Combobox(step_type_dropdown_frame, values=[step_type.value for step_type in ph.StepTypeName if step_type != ph.StepTypeName.END], state="readonly")
+        self.step_type_dropdown = ttk.Combobox(step_type_dropdown_frame,
+                                                values=[step_type.value for step_type in ph.StepTypeName if 
+                                                        step_type not in [ph.StepTypeName.END]], 
+                                                state="readonly")
         self.step_type_dropdown.grid(row=1, column=0, padx=20, pady=5, sticky='ew')
         self.step_type_dropdown.bind("<<ComboboxSelected>>", self.on_step_type_selected)
         self.step_type_dropdown.set(ph.StepTypeName.END.value)
 
-        # Setup detail section
-        self.details_frame = tk.Frame(detail_frame)
-        self.details_frame.grid(row=2, column=0, columnspan=2, sticky='nsew', padx=0, pady=0)
+        # Setup step_options section
+        self.step_options_frame = tk.Frame(detail_frame)
+        self.step_options_frame.grid(row=2, column=0, columnspan=2, sticky='nsew', padx=0, pady=0)
 
-        # Configure details_frame to expand
-        self.details_frame.grid_rowconfigure(0, weight=0)
-        self.details_frame.grid_rowconfigure(1, weight=0)
-        self.details_frame.grid_rowconfigure(2, weight=1)
-        self.details_frame.grid_columnconfigure(0, weight=1)
-        self.details_frame.grid_columnconfigure(1, weight=1)
+        self.step_options_frame.grid_rowconfigure(0, weight=0)
+        self.step_options_frame.grid_rowconfigure(1, weight=0)
+        self.step_options_frame.grid_rowconfigure(2, weight=1)
+        self.step_options_frame.grid_columnconfigure(0, weight=1)
+        self.step_options_frame.grid_columnconfigure(1, weight=1)
 
         #bottom buttons
         self.add_button = tk.Button(detail_frame, text="Add Step", command=self.add_step)
@@ -132,9 +135,7 @@ class ProgramEditor:
         self.menu.add_separator() 
         self.menu.add_command(label="Help", command=self.show_help)  # Direct command to show help
 
-        # Bind treeview events
-        self.tree.bind('<<TreeviewSelect>>', self.on_treeview_select)
-        self.step_type_dropdown.event_generate("<<ComboboxSelected>>")
+        self.step_type_dropdown.event_generate("<<ComboboxSelected>>") # Build first step in step options
 
     def create_entry_widget(self, parent_frame:tk.Frame, label_text:str, initial_value=0, validation_limits:tuple = None, horizontal:bool=True) -> tuple[tk.Frame, tk.IntVar]:
         frame = tk.Frame(parent_frame)
@@ -150,6 +151,11 @@ class ProgramEditor:
             frame.grid_columnconfigure(0, weight=1)
             frame.grid_columnconfigure(1, weight=0)
         else:
+            label = tk.Label(frame, text=label_text, anchor='center')
+
+            var = tk.IntVar(value=initial_value)
+            entry = tk.Entry(frame, textvariable=var, width=5)
+            
             label.grid(row=0, column=0, padx=0, pady=5, sticky='w')
             entry.grid(row=1, column=0, padx=0, pady=5, sticky='e')
             frame.grid_rowconfigure(0, weight=0)
@@ -160,6 +166,22 @@ class ProgramEditor:
         entry.bind('<KeyRelease>', lambda event: self.update_buttons_state(entry, limit_lo, limit_hi, event))
 
         return frame, var 
+
+    def validate_entry(self, entry:tk.Entry, value:int, limit_lo:int, limit_hi:int):
+        valid = True
+
+        try:
+            if not (limit_lo <= float(value) <= limit_hi):
+                valid = False
+        except (ValueError, TypeError):
+            valid = False
+
+        if not valid:
+            entry.config(bg=ERROR_COLOR)
+        else:
+            entry.config(bg=DEFAULT_COLOR)
+            
+        return valid
 
     def create_ramp_rate_entry_widget(self, parent_frame:tk.Frame) -> tk.Frame:
         frame = tk.Frame(parent_frame)
@@ -211,7 +233,7 @@ class ProgramEditor:
         event_output_states = [checkbox_var.get() for checkbox_var in self.event_output_vars]
         return any(event_output_states), event_output_states
 
-    def create_duration_widgets(self, parent_frame:tk.Frame):
+    def create_grouped_entry_widgets(self, parent_frame:tk.Frame, label_name:str, vars_list:list, entry_params:list[tuple[str, tuple[int, int]]]):
         frame = tk.Frame(parent_frame)
         frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, padx=20, pady=2, sticky='e')
         for i in range(3):
@@ -219,22 +241,34 @@ class ProgramEditor:
         
         self.step_detail_frames.append(frame)
 
-        self.duration_vars = []
+        if label_name:
+            tk.Label(frame, text=label_name, anchor='center').grid(row=0, columnspan=3, pady=0)
 
-        tk.Label(frame, text="Duration", anchor='center').grid(row=0, columnspan=3, pady=0)
+        for idx, param in enumerate(entry_params):
+            frame_entry, var = self.create_entry_widget(frame, param[0], param[1][0], 
+                                                validation_limits=param[1], horizontal=False)
+            frame_entry.grid(row=1, column=idx, pady=0, sticky='ew', padx=0)
+            vars_list.append(var)
 
-        frame_entry, var = self.create_entry_widget(frame, "Hours", 0, validation_limits=(0, 99), horizontal=False)
-        frame_entry.grid(row=1, column=0, pady=0, sticky='ew', padx=0)
-        self.duration_vars.append(var)
-        
-        frame_entry, var = self.create_entry_widget(frame, "Minutes", 0, validation_limits=(0, 99), horizontal=False)
-        frame_entry.grid(row=1, column=1, pady=0, sticky='ew', padx=0)
-        self.duration_vars.append(var) 
+    def get_time_entries_timedelta(self) -> td:
+        hours = int(self.time_vars[0].get())
+        minutes = int(self.time_vars[1].get())
+        seconds = int(self.time_vars[2].get())
 
-        frame_entry, var = self.create_entry_widget(frame, "Seconds", 1, validation_limits=(1, 99), horizontal=False)
-        frame_entry.grid(row=1, column=2, pady=0, sticky='ew', padx=0)
-        self.duration_vars.append(var)
-   
+        if seconds >= 60:
+            minutes += seconds // 60
+            seconds = seconds % 60
+
+        if minutes >= 60:
+            hours += minutes // 60
+            hours = hours if hours <= 99 else 99 #limit hours to 99
+
+            minutes = minutes % 60
+
+        return td(hours=hours, 
+                minutes=minutes, 
+                seconds=seconds)
+
     def create_channel_temp_setpoint_widgets(self, parent_frame:tk.Frame, widget_count:int) -> tk.Frame:
         frame = tk.Frame(parent_frame)
         frame.grid(row=len(self.step_detail_frames)+1, column=0, padx=7, pady=5, sticky='ew', columnspan=2)
@@ -303,11 +337,11 @@ class ProgramEditor:
                 self.update_button.config(state='disabled')
 
     def create_detail_widgets(self, step_type_name:ph.StepTypeName):
-        for widget in self.details_frame.winfo_children():
-            widget.grid_forget()
+        for widget in self.step_options_frame.winfo_children():
+            widget.destroy()
 
         for i in range(4):
-            self.details_frame.grid_rowconfigure(i, weight=1)
+            self.step_options_frame.grid_rowconfigure(i, weight=1)
 
         self.add_button.config(state='normal')
         self.remove_button.config(state='normal')
@@ -325,29 +359,31 @@ class ProgramEditor:
             self.create_end_widgets()
             self.remove_button.config(state='disabled')
             self.add_button.config(state='disabled')
+        elif step_type_name == ph.StepTypeName.AUTOSTART.value:
+            self.create_autostart_widgets()
 
     def create_ramp_by_time_widgets(self):
-        self.create_event_output_widgets(self.details_frame)
-        self.create_duration_widgets(self.details_frame)
-        self.create_channel_temp_setpoint_widgets(self.details_frame, 2)
-        self.create_channel_pid_selection_widgets(self.details_frame, 2)
-        self.create_guaranteed_soak_widgets(self.details_frame, 2)
+        self.create_event_output_widgets(self.step_options_frame)
+        self.create_grouped_entry_widgets(self.step_options_frame, 'Duration', self.time_vars, [('Hours',(0,99)), ('Minutes',(0,99)), ('Seconds',(1,99))])
+        self.create_channel_temp_setpoint_widgets(self.step_options_frame, 2)
+        self.create_channel_pid_selection_widgets(self.step_options_frame, 2)
+        self.create_guaranteed_soak_widgets(self.step_options_frame, 2)
 
     def create_ramp_by_rate_widgets(self):
-        self.create_event_output_widgets(self.details_frame)
-        self.create_ramp_rate_entry_widget(self.details_frame)
-        self.create_channel_temp_setpoint_widgets(self.details_frame, 1)
-        self.create_channel_pid_selection_widgets(self.details_frame, 1)
-        self.create_guaranteed_soak_widgets(self.details_frame, 1)
+        self.create_event_output_widgets(self.step_options_frame)
+        self.create_ramp_rate_entry_widget(self.step_options_frame)
+        self.create_channel_temp_setpoint_widgets(self.step_options_frame, 1)
+        self.create_channel_pid_selection_widgets(self.step_options_frame, 1)
+        self.create_guaranteed_soak_widgets(self.step_options_frame, 1)
 
     def create_soak_widgets(self):
-        self.create_event_output_widgets(self.details_frame)
-        self.create_duration_widgets(self.details_frame)
-        self.create_channel_pid_selection_widgets(self.details_frame, 2)
-        self.create_guaranteed_soak_widgets(self.details_frame, 2)
+        self.create_event_output_widgets(self.step_options_frame)
+        self.create_grouped_entry_widgets(self.step_options_frame, 'Duration', self.time_vars, [('Hours',(0,99)), ('Minutes',(0,99)), ('Seconds',(1,99))])
+        self.create_channel_pid_selection_widgets(self.step_options_frame, 2)
+        self.create_guaranteed_soak_widgets(self.step_options_frame, 2)
 
     def create_jump_widgets(self):
-        frame = tk.Frame(self.details_frame)
+        frame = tk.Frame(self.step_options_frame)
         frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, padx=5, pady=5, sticky='ew')
         frame.grid_columnconfigure(0, weight=1)
         frame.grid_columnconfigure(1, weight=0)
@@ -368,21 +404,39 @@ class ProgramEditor:
         frame.grid(row=2, column=0, columnspan=2, pady=5, sticky='we')
         self.jump_vars.append(var)
 
-    def validate_entry(self, entry:tk.Entry, value:int, limit_lo:int, limit_hi:int):
-        valid = True
+    def create_autostart_widgets(self):
+        autostart_frame = tk.Frame(self.step_options_frame)
+        autostart_frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, padx=5, pady=5, sticky='ew')
+        for i in range(2):
+            autostart_frame.grid_columnconfigure(i, weight=1)
 
-        try:
-            if not (limit_lo <= float(value) <= limit_hi):
-                valid = False
-        except (ValueError, TypeError):
-            valid = False
+        self.step_detail_frames.append(autostart_frame)
 
-        if not valid:
-            entry.config(bg=ERROR_COLOR)
-        else:
-            entry.config(bg=DEFAULT_COLOR)
-            
-        return valid
+        selection_frame = tk.Frame(autostart_frame)
+        selection_frame.grid(row=1, column=0, padx=5, pady=5, sticky='ew', columnspan=2)
+        for i in range(2):
+            selection_frame.grid_columnconfigure(i, weight=1)
+
+        def on_autostart_day_date_selected(event, selection):
+            for widget in selection_frame.winfo_children():
+                widget.destroy()
+
+            if selection == 'Date':                                                         #got tired of messing with the grid...
+                self.create_grouped_entry_widgets(selection_frame, '', self.date_vars, [('Day',(1,31)), ('  Month',(1,12)), ('    Year  ',(1998,2035))])
+            elif selection == 'Day':
+                frame, self.autostart_start_day_combobox = self.create_combobox_widget(selection_frame, ("Every Day", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"), "Day:")
+                frame.grid(row=0, column=0, padx=5, pady=5, sticky='ew')
+                self.autostart_start_day_combobox.config(width=10)
+                self.autostart_start_day_combobox.grid(padx=0)
+
+            self.create_grouped_entry_widgets(selection_frame, 'Time', self.time_vars, [('Hours',(0,23)), ('Minutes',(0,59)), ('Seconds',(0,59))])
+        
+        frame, self.autostart_date_or_day_combobox = self.create_combobox_widget(autostart_frame, ['Date', 'Day'], 'Select:')
+        frame.grid(row=0, column=0, padx=5, pady=5, sticky='ew')
+        self.autostart_date_or_day_combobox.config(width=10)
+        self.autostart_date_or_day_combobox.grid(padx=0)
+        self.autostart_date_or_day_combobox.bind("<<ComboboxSelected>>", lambda event: on_autostart_day_date_selected(event, self.autostart_date_or_day_combobox.get()))
+        self.autostart_date_or_day_combobox.event_generate("<<ComboboxSelected>>")
 
     def update_buttons_state(self, entry:tk.Entry, limit_lo:int, limit_hi:int, event=None):
         if (self.validate_entry(entry, entry.get(), limit_lo, limit_hi)):
@@ -393,7 +447,7 @@ class ProgramEditor:
             self.update_button.config(state='disabled')
 
     def create_end_widgets(self):
-        end_frame = tk.Frame(self.details_frame)
+        end_frame = tk.Frame(self.step_options_frame)
         end_frame.grid(row=len(self.step_detail_frames)+1, column=0, columnspan=2, padx=0, pady=5, sticky='ew')
         for i in range(2):
             end_frame.grid_columnconfigure(i, weight=1)
@@ -418,25 +472,6 @@ class ProgramEditor:
         frame.grid(row=2, column=0, padx=0, pady=5, sticky='ew')
         self.end_action_vars.append(var)
 
-    def get_duration_timedelta(self) -> td:
-        hours = int(self.duration_vars[0].get())
-        minutes = int(self.duration_vars[1].get())
-        seconds = int(self.duration_vars[2].get())
-
-        if seconds >= 60:
-            minutes += seconds // 60
-            seconds = seconds % 60
-
-        if minutes >= 60:
-            hours += minutes // 60
-            hours = hours if hours <= 99 else 99 #limit hours to 99
-
-            minutes = minutes % 60
-
-        return td(hours=hours, 
-                minutes=minutes, 
-                seconds=seconds)
-
     def get_step_from_current_selection(self) -> ph.Step:
         step_type_name = self.step_type_dropdown.get()
 
@@ -447,7 +482,7 @@ class ProgramEditor:
                 details = ph.RampTime(
                     wait_for=wait_for_state,
                     event_output_states=event_output_states,
-                    duration=self.get_duration_timedelta(),
+                    duration=self.get_time_entries_timedelta(),
                     ch1_temp_setpoint=self.channel_temp_setpoint_vars[0].get(),
                     ch2_temp_setpoint=self.channel_temp_setpoint_vars[1].get(),
                     ch1_pid_selection=self.ch_pid_selection_comboboxes[0].current(),
@@ -476,7 +511,7 @@ class ProgramEditor:
                 details = ph.Soak(
                     wait_for=wait_for_state,
                     event_output_states=event_output_states,
-                    duration=self.get_duration_timedelta(),
+                    duration=self.get_time_entries_timedelta(),
                     ch1_pid_selection=self.ch_pid_selection_comboboxes[0].current(),
                     ch2_pid_selection=self.ch_pid_selection_comboboxes[1].current(),
                     guaranteed_soak_1=self.guaranteed_soak_vars[0].get(),
@@ -499,6 +534,18 @@ class ProgramEditor:
                     end_action=self.end_action_vars[0].get(),
                     ch1_idle_setpoint=self.end_action_vars[1].get(),
                     ch2_idle_setpoint=self.end_action_vars[2].get()
+                )
+            )
+
+        elif step_type_name == ph.StepTypeName.AUTOSTART.value:
+            date_or_day = self.autostart_date_or_day_combobox.current()
+            step = ph.Step(
+                type_name=ph.StepTypeName.AUTOSTART, 
+                details = ph.Autostart(
+                    date_or_day= date_or_day,
+                    start_time = self.get_time_entries_timedelta(),
+                    start_day = self.autostart_start_day_combobox.current() if date_or_day == 1 else None,
+                    start_date = dt(day=self.date_vars[0].get(), month=self.date_vars[1].get(), year=self.date_vars[2].get()) if date_or_day == 0 else None,
                 )
             )
 
@@ -574,9 +621,9 @@ class ProgramEditor:
                     var.set(step.details.event_output_states[idx])
 
                 hours, minutes, seconds = ph.timedelta_to_hours_minutes_seconds(step.details.duration)
-                self.duration_vars[0].set(hours)
-                self.duration_vars[1].set(minutes)
-                self.duration_vars[2].set(seconds)
+                self.time_vars[0].set(hours)
+                self.time_vars[1].set(minutes)
+                self.time_vars[2].set(seconds)
 
                 self.channel_temp_setpoint_vars[0].set(step.details.ch1_temp_setpoint)
                 self.channel_temp_setpoint_vars[1].set(step.details.ch2_temp_setpoint)
@@ -599,9 +646,9 @@ class ProgramEditor:
                     var.set(step.details.event_output_states[idx])
 
                 hours, minutes, seconds = ph.timedelta_to_hours_minutes_seconds(step.details.duration)
-                self.duration_vars[0].set(hours)
-                self.duration_vars[1].set(minutes)
-                self.duration_vars[2].set(seconds)
+                self.time_vars[0].set(hours)
+                self.time_vars[1].set(minutes)
+                self.time_vars[2].set(seconds)
 
                 self.ch_pid_selection_comboboxes[0].current(step.details.ch1_pid_selection)
                 self.ch_pid_selection_comboboxes[1].current(step.details.ch2_pid_selection)
@@ -617,6 +664,23 @@ class ProgramEditor:
                 self.end_action_vars[0].set(step.details.end_action)
                 self.end_action_vars[1].set(step.details.ch1_idle_setpoint)
                 self.end_action_vars[2].set(step.details.ch2_idle_setpoint)
+
+            elif step.type_name == ph.StepTypeName.AUTOSTART:
+                self.autostart_date_or_day_combobox.current(step.details.date_or_day)
+                self.autostart_date_or_day_combobox.event_generate("<<ComboboxSelected>>") #so that date_or_day conditional widgets are made
+
+                if step.details.date_or_day == 0:
+                    day, month, year = step.details.start_date.day, step.details.start_date.month, step.details.start_date.year
+                    self.date_vars[0].set(day)
+                    self.date_vars[1].set(month)
+                    self.date_vars[2].set(year)
+                else:
+                    self.autostart_start_day_combobox.set(step.details.start_day)
+
+                hours, minutes, seconds = ph.timedelta_to_hours_minutes_seconds(step.details.start_time)
+                self.time_vars[0].set(hours)
+                self.time_vars[1].set(minutes)
+                self.time_vars[2].set(seconds)
 
     def reindex_tree_view(self):
         children = self.tree.get_children()
@@ -730,13 +794,6 @@ class ProgramEditor:
         help_window.transient(self.root)
         help_window.grab_set()
         self.root.wait_window(help_window)
-
-    def show_about(self):
-        messagebox.showinfo("Help", 
-            """Developed by Cameron Basham, 2024.
-    https://github.com/shanedertrain/watlow_controller
-    License: GNU GENERAL PUBLIC LICENSE Version 3"""
-        )
 
     def open_load_to_watlow_dialog(self):
         modal = tk.Toplevel()

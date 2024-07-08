@@ -12,12 +12,21 @@ class StepTypeName(StrEnum):
     SOAK = 'Soak'
     JUMP = 'Jump'
     END = 'End'
+    AUTOSTART = 'Autostart'
 
 class EndActions(StrEnum):
     HOLD = 'Hold'
     CONTROL_OFF = 'Control Off'
     ALL_OFF = 'All Off'
     IDLE = 'Idle'
+
+@dataclass
+class Autostart:
+    date_or_day: int # True = date, False = day
+    start_time: td
+    start_day: int = None # 0 = every day, 1 = monday, 2 = tuesday, etc.
+    start_date: dt = None
+    type_enum = 0
 
 @dataclass
 class RampTime:
@@ -67,7 +76,7 @@ class End:
     ch2_idle_setpoint: int
     type_enum = 5
 
-StepDetail = Union[RampTime, RampRate, Soak, Jump, End]
+StepDetail = Union[RampTime, RampRate, Soak, Jump, End, Autostart]
 
 @dataclass
 class Step:
@@ -100,10 +109,10 @@ def custom_encoder(obj):
     elif isinstance(obj, StepTypeName):
         return obj.value
     elif isinstance(obj, dt):
-        return obj.strftime('%H:%M:%S')
+        return obj.strftime('%d/%m/%Y')
     raise TypeError(f"Type {type(obj).__name__} not serializable")
 
-def dict_to_step_details(d, type_name: StepTypeName):
+def dict_to_step_details(d:dict[str, Union[bool, float, int, str, dt, td]], type_name: StepTypeName):
     if type_name == StepTypeName.RAMP_BY_TIME:
         return RampTime(
             wait_for=d.get('wait_for', False),
@@ -146,6 +155,14 @@ def dict_to_step_details(d, type_name: StepTypeName):
             end_action=d.get('end_action', 0),
             ch1_idle_setpoint=d.get('ch1_idle_set_point', 0),
             ch2_idle_setpoint=d.get('ch2_idle_set_point', 0)
+        )
+    elif type_name == StepTypeName.AUTOSTART:
+        date_or_day = d.get('date_or_day', 0)
+        return Autostart(
+            date_or_day = date_or_day,
+            start_time=time_string_to_timedelta(d.get('start_time', "00:00:00")),
+            start_day = None if (value := d.get('start_day', None)) == None else value,
+            start_date = None if (value := d.get('start_date', None)) == None else dt.strptime(value, '%d/%m/%Y'),
         )
     else:
         raise ValueError(f"Unknown step type: {type_name}")

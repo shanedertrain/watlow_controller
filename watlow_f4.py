@@ -1,6 +1,8 @@
 import logging
-import minimalmodbus
+from datetime import datetime as dt
 import serial.tools.list_ports
+
+import minimalmodbus
 
 from watlow_f4_registers import WatlowF4Registers, profile_name_enum_dict
 import program_handler as ph
@@ -38,7 +40,7 @@ class WatlowF4:
                 
             raise Exception("Watlow F4 not found on any available COM port")
 
-    def try_port(self, com_port: str):
+    def try_port(self, com_port: str) -> bool:
         try:
             self.logger.debug(f"Trying port: {com_port}")
             self.instrument = minimalmodbus.Instrument(com_port, self.slave_address)
@@ -56,7 +58,7 @@ class WatlowF4:
             self.logger.error(f"Error connecting to port {com_port}: {e}")
             return False
 
-    def read_register(self, register: WatlowF4Registers):
+    def read_register(self, register: WatlowF4Registers) -> int:
         try:
             value = self.instrument.read_register(register)
             self.logger.debug(f"Read register {register}: {value}")
@@ -66,8 +68,8 @@ class WatlowF4:
             raise
 
     def set_temperature_setpoint(self, temperature: float):
-        msb = int(temperature * 10) // 256
-        lsb = int(temperature * 10) % 256
+        msb = (int(temperature * 10) >> 8) & 0xFF
+        lsb = int(temperature * 10) & 0xFF
         try:
             self.instrument.write_register(WatlowF4Registers.VALUE_SET_POINT_1, msb * 256 + lsb)
             self.logger.info(f"Set static temperature setpoint to {temperature}C")
@@ -84,7 +86,6 @@ class WatlowF4:
             self.logger.error(f"Error setting event {event_number} to state {state}: {e}")
             raise
     
-    #Profile and Configuration
     def save_changes_to_eeprom(self):
         try:
             self.instrument.write_register(WatlowF4Registers.SAVE_CHANGES_TO_EEPROM, 0)
@@ -93,7 +94,6 @@ class WatlowF4:
             self.logger.error(f"Error saving EEPROM: {e}")
             raise
     
-    #select profile
     def select_profile(self, profile_number: int):
         try:
             self.instrument.write_register(WatlowF4Registers.PROFILE_NUMBER, profile_number)
@@ -227,13 +227,47 @@ class WatlowF4:
                 self.logger.debug(f"set Step Type to {step.type_enum}")
 
                 self.instrument.write_register(WatlowF4Registers.PROFILE_END_ACTION, step.end_action)
-                self.logger.debug(f"set end step to to set {step.end_action}")
+                self.logger.debug(f"set end action to set to {step.end_action}")
 
                 self.instrument.write_register(WatlowF4Registers.PROFILE_END_IDLE_SETPOINT_CHANNEL_1, step.ch1_idle_setpoint)
-                self.logger.debug(f"set end step to to set {step.ch1_idle_setpoint}")
+                self.logger.debug(f"set channel 1 idle temperature setpoint set to {step.ch1_idle_setpoint}")
                 
                 self.instrument.write_register(WatlowF4Registers.PROFILE_END_IDLE_SETPOINT_CHANNEL_2, step.ch2_idle_setpoint)
-                self.logger.debug(f"set end step to to set {step.ch2_idle_setpoint}")
+                self.logger.debug(f"set channel 2 idle temperature setpoint set to {step.ch2_idle_setpoint}")
+            
+            elif type(step) == ph.Autostart:
+                self.instrument.write_register(WatlowF4Registers.PROFILE_STEP_TYPE, step.type_enum)
+                self.logger.debug(f"set Step Type to {step.type_enum}")
+
+                #set for date vs autostart check
+                self.instrument.write_register(WatlowF4Registers.PROFILE_AUTOSTART_DATE_OR_DAY, 0)
+                self.logger.debug(f"set autostart date or day {'date' if 0 == 0 else 'day'}")
+
+                # set the date to now
+                now = dt.now()
+                self.instrument.write_register(WatlowF4Registers.PROFILE_AUTOSTART_DATE_MONTH, now.month)
+                self.logger.debug(f"set autostart month to {now}")
+
+                self.instrument.write_register(WatlowF4Registers.PROFILE_AUTOSTART_DATE_DAY, now.day)
+                self.logger.debug(f"set autostart day to {now}")
+
+                self.instrument.write_register(WatlowF4Registers.PROFILE_AUTOSTART_DATE_YEAR, now.year)
+                self.logger.debug(f"set autostart year to {now}")
+
+                #day of week
+                self.instrument.write_register(WatlowF4Registers.PROFILE_AUTOSTART_DAY_OF_WEEK, step.start_day)
+                self.logger.debug(f"set start day to to set {step.start_day}")
+
+                #start time
+                start_hours, start_minutes, start_seconds = ph.timedelta_to_hours_minutes_seconds(step.start_time)
+                self.instrument.write_register(WatlowF4Registers.PROFILE_AUTOSTART_TIME_HOURS, start_hours)
+                self.logger.debug(f"Set autostart hours to {start_hours}")
+
+                self.instrument.write_register(WatlowF4Registers.PROFILE_AUTOSTART_TIME_MINUTES, start_minutes)
+                self.logger.debug(f"Set autostart minutes to {start_minutes}")
+
+                self.instrument.write_register(WatlowF4Registers.PROFILE_AUTOSTART_TIME_SECONDS, start_seconds)
+                self.logger.debug(f"Set autostart seconds to {start_seconds}")
 
             self.logger.debug(f"Successfully modified step {step_number}")
         except Exception as e:
@@ -254,7 +288,7 @@ class WatlowF4:
 
         self.logger.debug(f"Successfully set profile name to {profile_name}")
 
-    def delete_profile(self, profile_number: int):
+    def clear_profile(self, profile_number: int):
         self.select_profile(profile_number)
         
         try:
