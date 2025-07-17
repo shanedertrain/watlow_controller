@@ -1,6 +1,8 @@
 # tests/test_watlow.py
+import os
 
 import pytest
+
 from watlow_controller.watlow_f4 import WatlowF4
 
 def test_init():
