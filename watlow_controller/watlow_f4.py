@@ -7,8 +7,8 @@ from enum import StrEnum
 
 import minimalmodbus
 
-from watlow_f4_registers import WatlowF4Registers
-import program_handler as ph
+from .watlow_f4_registers import WatlowF4Registers
+from . import program_handler as ph
 
 # PID Parameter Engineering Limits (derived from manual's Modbus value ranges and scaling)
 @dataclass(frozen=True)

@@ -1,8 +1,22 @@
-watlow_programs/*
+# Bytecode and cache
+__pycache__/
+*.py[cod]
 *.pyc
-settings.json
-build/*
+.mypy_cache/
+
+# Virtual environments
+.venv/
+
+# Build and distribution artifacts
+build/
+dist/
+*.egg-info/
 *r.spec
-dist/*
+
+# Logs and runtime files
 *.log
 *.json
+settings.json
+
+# Project-specific files
+watlow_programs/*
